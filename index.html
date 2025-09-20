@@ -7,14 +7,16 @@
     <title>Survival Game</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="importmap">
-      {
-        "imports": {
-          "react/": "https://aistudiocdn.com/react@^19.1.1/",
-          "react": "https://aistudiocdn.com/react@^19.1.1",
-          "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/"
-        }
-      }
-    </script>
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "react": "https://aistudiocdn.com/react@^19.1.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.0.3",
+    "vite": "https://aistudiocdn.com/vite@^7.1.6"
+  }
+}
+</script>
     <style>
       body {
         margin: 0;
@@ -26,6 +28,14 @@
       #root {
         width: 100vw;
         height: 100vh;
+      }
+      @keyframes shake {
+        0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
+        25% { transform: translate(-50%, -50%) rotate(-2deg); }
+        75% { transform: translate(-50%, -50%) rotate(2deg); }
+      }
+      .animate-shake {
+        animation: shake 0.2s ease-in-out;
       }
     </style>
   </head>
