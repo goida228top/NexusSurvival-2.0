@@ -32,3 +32,5 @@ export type GameSettings = {
   showFps: boolean;
   showHitboxes: boolean;
 };
+
+export type GameState = 'menu' | 'mode-select' | 'online-lobby' | 'playing' | 'paused' | 'settings';

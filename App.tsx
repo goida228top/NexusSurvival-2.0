@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Game from './components/Game';
 import Settings from './components/Settings';
-import type { GameSettings } from './types';
-
-type GameState = 'menu' | 'mode-select' | 'playing' | 'paused' | 'settings';
+import OnlineLobby from './components/OnlineLobby';
+import type { GameSettings, GameState } from './types';
 
 const defaultSettings: GameSettings = {
     joystickSize: 160,
@@ -13,8 +12,12 @@ const defaultSettings: GameSettings = {
     showHitboxes: false,
 };
 
+type GameMode = 'offline' | 'online';
+
 const App: React.FC = () => {
     const [gameState, setGameState] = useState<GameState>('menu');
+    const [gameMode, setGameMode] = useState<GameMode>('offline');
+    const [dataChannel, setDataChannel] = useState<RTCDataChannel | null>(null);
     const [settings, setSettings] = useState<GameSettings>(() => {
         try {
             const savedSettings = localStorage.getItem('gameSettings');
@@ -47,12 +50,30 @@ const App: React.FC = () => {
     }
 
     const handleOfflineClick = () => {
+        setGameMode('offline');
+        setDataChannel(null);
         setGameState('playing');
     };
+
+    const handleOnlineClick = () => {
+        setGameState('online-lobby');
+    };
+    
+    const handleConnectionEstablished = (channel: RTCDataChannel) => {
+        setDataChannel(channel);
+        setGameMode('online');
+        setGameState('playing');
+    };
+
 
     const handleBackToMenu = () => {
         setGameState('menu');
     };
+    
+    const handleBackToModeSelect = () => {
+        setGameState('mode-select');
+    };
+
 
     const renderContent = () => {
         switch (gameState) {
@@ -96,8 +117,8 @@ const App: React.FC = () => {
                                 Офлайн
                             </button>
                             <button
-                                disabled
-                                className="px-8 py-4 bg-gray-600 text-gray-400 font-bold rounded-lg text-2xl cursor-not-allowed"
+                                onClick={handleOnlineClick}
+                                className="px-8 py-4 bg-purple-600 text-white font-bold rounded-lg text-2xl hover:bg-purple-700 transition-colors"
                             >
                                 Онлайн
                             </button>
@@ -110,9 +131,22 @@ const App: React.FC = () => {
                         </button>
                     </div>
                 );
+            case 'online-lobby':
+                 return (
+                    <OnlineLobby 
+                        onBack={handleBackToModeSelect}
+                        onConnect={handleConnectionEstablished}
+                    />
+                );
             case 'playing':
             case 'paused':
-                return <Game gameState={gameState} setGameState={setGameState} settings={settings} />;
+                return <Game 
+                            gameState={gameState} 
+                            setGameState={setGameState} 
+                            settings={settings} 
+                            gameMode={gameMode}
+                            dataChannel={dataChannel}
+                        />;
         }
     };
 

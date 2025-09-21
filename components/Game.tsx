@@ -3,14 +3,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import Joystick from './Joystick';
 import Player from './Player';
 import InteractionIndicator from './InteractionIndicator';
-import type { Position, WorldObject, InventoryItem, InventoryItemType, GameSettings, GameEntity } from '../types';
+import type { Position, WorldObject, InventoryItem, InventoryItemType, GameSettings, GameEntity, GameState } from '../types';
 
-type GameState = 'menu' | 'mode-select' | 'playing' | 'paused';
-
+type GameMode = 'offline' | 'online';
 interface GameProps {
     gameState: GameState;
     setGameState: React.Dispatch<React.SetStateAction<GameState>>;
     settings: GameSettings;
+    gameMode: GameMode;
+    dataChannel: RTCDataChannel | null;
 }
 
 const initialWorldObjects: WorldObject[] = [
@@ -80,7 +81,7 @@ const lerpAngle = (start: number, end: number, amt: number) => {
     return value % 360;
 }
 
-const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
+const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, dataChannel }) => {
     const [playerPosition, setPlayerPosition] = useState<Position>({ x: 100, y: 100 });
     const [playerRotation, setPlayerRotation] = useState(0);
     const [worldObjects, setWorldObjects] = useState<WorldObject[]>(initialWorldObjects);
@@ -114,6 +115,44 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
     const handleBackToMenu = () => {
         setGameState('menu');
     }
+
+    // --- Online Logic ---
+    useEffect(() => {
+        if (gameMode === 'online' && dataChannel) {
+            console.log("Game started in ONLINE mode. Data channel ready.", dataChannel.readyState);
+
+            const handleMessage = (event: MessageEvent) => {
+                console.log("Received message:", event.data);
+                // Here we will process incoming game state from the other player
+            };
+
+            const handleOpen = () => {
+                console.log("Data channel opened!");
+                dataChannel.send("Hello from the other side!");
+            };
+
+            const handleClose = () => {
+                console.log("Data channel closed.");
+                 // Maybe show a "disconnected" message and go back to menu
+                setGameState('menu');
+            };
+
+            dataChannel.addEventListener('message', handleMessage);
+            dataChannel.addEventListener('open', handleOpen);
+            dataChannel.addEventListener('close', handleClose);
+            
+            if (dataChannel.readyState === 'open') {
+                handleOpen();
+            }
+
+            return () => {
+                dataChannel.removeEventListener('message', handleMessage);
+                dataChannel.removeEventListener('open', handleOpen);
+                dataChannel.removeEventListener('close', handleClose);
+            };
+        }
+    }, [gameMode, dataChannel, setGameState]);
+
 
     // Update the ref to the latest handlePunch function on every render.
     // This allows the event listener to call the up-to-date function
