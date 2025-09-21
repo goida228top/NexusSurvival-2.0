@@ -10,6 +10,7 @@ const defaultSettings: GameSettings = {
     buttonSize: 96,
     inventorySize: 64,
     showFps: false,
+    showHitboxes: false,
 };
 
 const App: React.FC = () => {

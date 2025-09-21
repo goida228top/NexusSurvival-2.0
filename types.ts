@@ -7,7 +7,16 @@ export type WorldObject = {
   health: number;
   emoji: string;
   size: number;
+  hitbox?: { width: number; height: number; offsetY: number };
 };
+
+export type Player = {
+  id: 'player';
+  type: 'player';
+  position: Position;
+};
+
+export type GameEntity = WorldObject | Player;
 
 export type InventoryItemType = 'wood' | 'stone';
 
@@ -21,4 +30,5 @@ export type GameSettings = {
   buttonSize: number;
   inventorySize: number;
   showFps: boolean;
+  showHitboxes: boolean;
 };

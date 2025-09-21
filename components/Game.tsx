@@ -1,6 +1,10 @@
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import Joystick from './Joystick';
-import type { Position, WorldObject, InventoryItem, InventoryItemType, GameSettings } from '../types';
+import Player from './Player';
+import InteractionIndicator from './InteractionIndicator';
+import type { Position, WorldObject, InventoryItem, InventoryItemType, GameSettings, GameEntity } from '../types';
 
 type GameState = 'menu' | 'mode-select' | 'playing' | 'paused';
 
@@ -11,29 +15,91 @@ interface GameProps {
 }
 
 const initialWorldObjects: WorldObject[] = [
-    { id: 1, type: 'tree', position: { x: 300, y: 150 }, health: 5, emoji: '🌳', size: 6 },
-    { id: 2, type: 'rock', position: { x: 450, y: 300 }, health: 3, emoji: '🪨', size: 4 },
-    { id: 3, type: 'tree', position: { x: 600, y: 100 }, health: 5, emoji: '🌳', size: 6 },
-    { id: 4, type: 'tree', position: { x: 200, y: 400 }, health: 5, emoji: '🌳', size: 6 },
-    { id: 5, type: 'rock', position: { x: 700, y: 500 }, health: 3, emoji: '🪨', size: 4 },
-    { id: 6, type: 'tree', position: { x: 100, y: 600 }, health: 5, emoji: '🌳', size: 6 },
+    { id: 1, type: 'tree', position: { x: 300, y: 150 }, health: 5, emoji: '🌳', size: 6, hitbox: { width: 8, height: 10, offsetY: 50 } },
+    { id: 2, type: 'rock', position: { x: 450, y: 300 }, health: 3, emoji: '🪨', size: 4, hitbox: { width: 55, height: 30, offsetY: 15 } },
+    { id: 3, type: 'tree', position: { x: 600, y: 100 }, health: 5, emoji: '🌳', size: 6, hitbox: { width: 8, height: 10, offsetY: 50 } },
+    { id: 4, type: 'tree', position: { x: 200, y: 400 }, health: 5, emoji: '🌳', size: 6, hitbox: { width: 8, height: 10, offsetY: 50 } },
+    { id: 5, type: 'rock', position: { x: 700, y: 500 }, health: 3, emoji: '🪨', size: 4, hitbox: { width: 55, height: 30, offsetY: 15 } },
+    { id: 6, type: 'tree', position: { x: 100, y: 600 }, health: 5, emoji: '🌳', size: 6, hitbox: { width: 8, height: 10, offsetY: 50 } },
 ];
 
+const PLAYER_HITBOX_RADIUS = 10; // Уменьшили радиус
+const PLAYER_HITBOX_OFFSET_Y = -5; // Вернули смещение на торс
+
+// --- Система столкновений (Круг-Прямоугольник) ---
+type AABB = { x: number; y: number; width: number; height: number };
+type Circle = { x: number; y: number; radius: number };
+
+const getPlayerHitbox = (position: Position): Circle => {
+    return {
+        x: position.x,
+        y: position.y + PLAYER_HITBOX_OFFSET_Y,
+        radius: PLAYER_HITBOX_RADIUS,
+    };
+};
+
+const getObjectHitbox = (obj: WorldObject): AABB | null => {
+    if (!obj.hitbox) return null;
+    const { width, height, offsetY } = obj.hitbox;
+    const centerX = obj.position.x;
+    const centerY = obj.position.y + offsetY;
+    return {
+        x: centerX - width / 2,
+        y: centerY - height / 2,
+        width: width,
+        height: height,
+    };
+};
+
+const checkCircleAABBCollision = (circle: Circle, rect: AABB): boolean => {
+    // Находим ближайшую точку на прямоугольнике к центру круга
+    const closestX = Math.max(rect.x, Math.min(circle.x, rect.x + rect.width));
+    const closestY = Math.max(rect.y, Math.min(circle.y, rect.y + rect.height));
+
+    // Вычисляем расстояние
+    const distanceX = circle.x - closestX;
+    const distanceY = circle.y - closestY;
+    const distanceSquared = (distanceX * distanceX) + (distanceY * distanceY);
+
+    // Если квадрат расстояния меньше квадрата радиуса, есть столкновение
+    return distanceSquared < (circle.radius * circle.radius);
+};
+// --- Конец системы ---
+
+
+const lerp = (start: number, end: number, amt: number) => {
+    return (1 - amt) * start + amt * end;
+}
+
+const lerpAngle = (start: number, end: number, amt: number) => {
+    const difference = Math.abs(end - start);
+    if (difference > 180) {
+        if (end > start) start += 360;
+        else end += 360;
+    }
+    const value = (start + ((end - start) * amt));
+    return value % 360;
+}
 
 const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
     const [playerPosition, setPlayerPosition] = useState<Position>({ x: 100, y: 100 });
+    const [playerRotation, setPlayerRotation] = useState(0);
     const [worldObjects, setWorldObjects] = useState<WorldObject[]>(initialWorldObjects);
     const [inventory, setInventory] = useState<(InventoryItem | undefined)[]>([]);
-    const [hitEffects, setHitEffects] = useState<number[]>([]); // stores IDs of hit objects for animation
+    const [hitEffects, setHitEffects] = useState<number[]>([]);
     const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
     const [fps, setFps] = useState(0);
+    const [showPunchIndicator, setShowPunchIndicator] = useState(false);
 
     const keysPressed = useRef<{ [key: string]: boolean }>({});
     const joystickVector = useRef({ x: 0, y: 0 });
+    const isSprinting = useRef(false);
     const gameLoopRef = useRef<number | null>(null);
     const nextObjectId = useRef<number>(initialWorldObjects.length + 1);
     
-    // FPS counter refs
+    const playerVelocity = useRef({ x: 0, y: 0 });
+    const targetRotation = useRef(0);
+    
     const lastTimeRef = useRef<number>(performance.now());
     const frameCountRef = useRef<number>(0);
 
@@ -50,11 +116,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
         setGameState('menu');
     }
 
-    // Keyboard controls
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             keysPressed.current[e.key.toLowerCase()] = true;
-            // Map Russian layout
+            if (e.key === 'Shift') isSprinting.current = true;
             if (e.key === 'ц') keysPressed.current['w'] = true;
             if (e.key === 'ф') keysPressed.current['a'] = true;
             if (e.key === 'ы') keysPressed.current['s'] = true;
@@ -62,6 +127,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
         };
         const handleKeyUp = (e: KeyboardEvent) => {
             keysPressed.current[e.key.toLowerCase()] = false;
+            if (e.key === 'Shift') isSprinting.current = false;
             if (e.key === 'ц') keysPressed.current['w'] = false;
             if (e.key === 'ф') keysPressed.current['a'] = false;
             if (e.key === 'ы') keysPressed.current['s'] = false;
@@ -76,40 +142,87 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
         };
     }, []);
 
-    // Game loop
     useEffect(() => {
         const gameLoop = () => {
             if (gameState === 'playing') {
                 let moveX = 0;
                 let moveY = 0;
 
-                // Keyboard input
                 if (keysPressed.current['w']) moveY -= 1;
                 if (keysPressed.current['s']) moveY += 1;
                 if (keysPressed.current['a']) moveX -= 1;
                 if (keysPressed.current['d']) moveX += 1;
 
-                // Joystick input
                 moveX += joystickVector.current.x;
                 moveY += joystickVector.current.y;
 
-                // Normalize vector to prevent faster diagonal movement and cap input
+                let targetVelocityX = 0;
+                let targetVelocityY = 0;
+
                 const magnitude = Math.sqrt(moveX * moveX + moveY * moveY);
-                if (magnitude > 1) {
-                    moveX /= magnitude;
-                    moveY /= magnitude;
+                if (magnitude > 0) {
+                    const normalizedX = moveX / magnitude;
+                    const normalizedY = moveY / magnitude;
+                    
+                    targetRotation.current = Math.atan2(normalizedY, normalizedX) * (180 / Math.PI) + 90;
+
+                    const baseSpeed = 1.5;
+                    const sprintSpeed = 4.5;
+                    const currentSpeed = isSprinting.current ? sprintSpeed : baseSpeed;
+
+                    targetVelocityX = normalizedX * currentSpeed;
+                    targetVelocityY = normalizedY * currentSpeed;
+                }
+                
+                const acceleration = 0.1;
+                const rotationSpeed = 0.15;
+
+                playerVelocity.current.x = lerp(playerVelocity.current.x, targetVelocityX, acceleration);
+                playerVelocity.current.y = lerp(playerVelocity.current.y, targetVelocityY, acceleration);
+
+                setPlayerRotation(prevRotation => lerpAngle(prevRotation, targetRotation.current, rotationSpeed));
+
+                const nextX = playerPosition.x + playerVelocity.current.x;
+                const nextY = playerPosition.y + playerVelocity.current.y;
+
+                let finalX = playerPosition.x;
+                let finalY = playerPosition.y;
+
+                // Проверка столкновений по оси X
+                const playerHitboxX = getPlayerHitbox({ x: nextX, y: playerPosition.y });
+                let canMoveX = true;
+                for (const obj of worldObjects) {
+                    const objHitbox = getObjectHitbox(obj);
+                    if (objHitbox && checkCircleAABBCollision(playerHitboxX, objHitbox)) {
+                        canMoveX = false;
+                        playerVelocity.current.x = 0;
+                        break;
+                    }
+                }
+                if (canMoveX) {
+                    finalX = nextX;
                 }
 
-                if (moveX !== 0 || moveY !== 0) {
-                    const speed = 3;
-                    setPlayerPosition(prev => ({
-                        x: prev.x + moveX * speed,
-                        y: prev.y + moveY * speed,
-                    }));
+                // Проверка столкновений по оси Y
+                const playerHitboxY = getPlayerHitbox({ x: finalX, y: nextY });
+                let canMoveY = true;
+                for (const obj of worldObjects) {
+                    const objHitbox = getObjectHitbox(obj);
+                    if (objHitbox && checkCircleAABBCollision(playerHitboxY, objHitbox)) {
+                        canMoveY = false;
+                        playerVelocity.current.y = 0;
+                        break;
+                    }
+                }
+                if (canMoveY) {
+                    finalY = nextY;
+                }
+                
+                if(finalX !== playerPosition.x || finalY !== playerPosition.y) {
+                    setPlayerPosition({ x: finalX, y: finalY });
                 }
             }
 
-            // FPS calculation
             const now = performance.now();
             frameCountRef.current++;
             if (now - lastTimeRef.current >= 1000) {
@@ -126,7 +239,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
                 cancelAnimationFrame(gameLoopRef.current);
             }
         };
-    }, [gameState]);
+    }, [gameState, worldObjects, playerPosition]);
 
     const handleJoystickMove = (x: number, y: number) => {
         joystickVector.current = { x, y };
@@ -156,26 +269,43 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
                 return newInventory;
             }
     
-            return prev; // Hotbar is full
+            return prev;
         });
     };
     
-
     const handlePunch = () => {
         if (gameState !== 'playing') return;
 
+        setShowPunchIndicator(true);
+        setTimeout(() => setShowPunchIndicator(false), 1000);
+
         const punchRange = 60;
+        const punchAngle = 90;
+
+        const playerAngleRad = (playerRotation - 90) * (Math.PI / 180);
+        const forwardVec = { x: Math.cos(playerAngleRad), y: Math.sin(playerAngleRad) };
+
         let closestObject: WorldObject | null = null;
         let minDistance = Infinity;
 
         for (const obj of worldObjects) {
-            const distance = Math.sqrt(
-                Math.pow(playerPosition.x - obj.position.x, 2) +
-                Math.pow(playerPosition.y - obj.position.y, 2)
-            );
-            if (distance < punchRange && distance < minDistance) {
-                minDistance = distance;
-                closestObject = obj;
+            const toObjectVec = {
+                x: obj.position.x - playerPosition.x,
+                y: obj.position.y - playerPosition.y,
+            };
+            const distance = Math.sqrt(toObjectVec.x ** 2 + toObjectVec.y ** 2);
+
+            if (distance > punchRange || distance === 0) continue;
+
+            const normalizedToObjectVec = { x: toObjectVec.x / distance, y: toObjectVec.y / distance };
+            const dotProduct = forwardVec.x * normalizedToObjectVec.x + forwardVec.y * normalizedToObjectVec.y;
+            const angleThreshold = Math.cos((punchAngle / 2) * (Math.PI / 180));
+
+            if (dotProduct > angleThreshold) {
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestObject = obj;
+                }
             }
         }
 
@@ -197,7 +327,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
         }
     };
     
-    const handleSlotClick = (index: number) => {
+    const handleSlotClick = (e: React.MouseEvent, index: number) => {
+        e.stopPropagation();
         if (!inventory[index]) {
             setSelectedSlot(null);
             return;
@@ -210,14 +341,24 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
 
         const itemToPlace = inventory[selectedSlot]!;
         const newObjectType = itemToPlace.type === 'wood' ? 'tree' : 'rock';
+        const placeDistance = 50;
+        const playerAngleRad = (playerRotation - 90) * (Math.PI / 180);
+    
+        const newPosition = {
+            x: playerPosition.x + Math.cos(playerAngleRad) * placeDistance,
+            y: playerPosition.y + Math.sin(playerAngleRad) * placeDistance
+        };
 
         const newObject: WorldObject = {
             id: nextObjectId.current++,
             type: newObjectType,
-            position: { x: playerPosition.x, y: playerPosition.y },
+            position: newPosition,
             health: newObjectType === 'tree' ? 5 : 3,
             emoji: newObjectType === 'tree' ? '🌳' : '🪨',
             size: newObjectType === 'tree' ? 6 : 4,
+            hitbox: newObjectType === 'tree' 
+                ? { width: 8, height: 10, offsetY: 50 }
+                : { width: 55, height: 30, offsetY: 15 },
         };
 
         setWorldObjects(prev => [...prev, newObject]);
@@ -236,7 +377,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
         });
     };
 
-
     const getItemEmoji = (type: InventoryItemType) => {
         switch(type) {
             case 'wood': return '🪵';
@@ -246,9 +386,21 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
     }
 
     const handleActionPress = (e: React.SyntheticEvent, action: () => void) => {
+        e.stopPropagation();
         e.preventDefault();
         action();
     };
+
+    const handleSprintStart = (e: React.SyntheticEvent) => {
+        if (e.target === e.currentTarget) {
+            isSprinting.current = true;
+        }
+    };
+
+    const handleSprintEnd = () => {
+        isSprinting.current = false;
+    };
+
 
     const actionButtonStyle: React.CSSProperties = {
         width: `${settings.buttonSize}px`,
@@ -266,100 +418,182 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
         ...hotbarSlotStyle,
         fontSize: `${settings.inventorySize * 0.5}px`,
     }
+    
+    const getEntityFeetY = (entity: GameEntity) => {
+        if (entity.type === 'player') {
+            return entity.position.y;
+        }
+        const obj = entity as WorldObject;
+        if (obj.hitbox) {
+            return obj.position.y + obj.hitbox.offsetY + obj.hitbox.height / 2;
+        }
+        return obj.position.y;
+    };
+
+    const renderableEntities: GameEntity[] = [
+        ...worldObjects,
+        { id: 'player' as 'player', type: 'player' as 'player', position: playerPosition }
+    ].sort((a, b) => getEntityFeetY(a) - getEntityFeetY(b));
+
+    const playerHitbox = getPlayerHitbox(playerPosition);
+
 
     return (
-        <div className="relative w-full h-full bg-green-400 overflow-hidden select-none">
-            {/* World Objects */}
-            {worldObjects.map(obj => (
-                 <div
-                    key={obj.id}
-                    className={`absolute select-none transition-transform duration-200 ${hitEffects.includes(obj.id) ? 'animate-shake' : ''}`}
-                    style={{
-                        left: obj.position.x,
-                        top: obj.position.y,
-                        fontSize: `${obj.size}rem`,
-                        transform: 'translate(-50%, -50%)',
-                        lineHeight: 1,
-                    }}
-                 >
-                    {obj.emoji}
-                </div>
-            ))}
+        <div 
+            className="relative w-full h-full bg-green-400 overflow-hidden select-none"
+            onMouseDown={handleSprintStart}
+            onMouseUp={handleSprintEnd}
+            onMouseLeave={handleSprintEnd}
+            onTouchStart={handleSprintStart}
+            onTouchEnd={handleSprintEnd}
+            onTouchCancel={handleSprintEnd}
+        >
+            {renderableEntities.map(entity => {
+                if (entity.type === 'player') {
+                     return (
+                        <div
+                            key="player"
+                            style={{
+                                position: 'absolute',
+                                left: entity.position.x,
+                                top: entity.position.y,
+                            }}
+                        >
+                            <Player rotation={playerRotation} />
+                             <InteractionIndicator
+                                rotation={playerRotation}
+                                type={selectedSlot !== null ? 'build' : (showPunchIndicator ? 'punch' : 'none')}
+                            />
+                        </div>
+                    );
+                }
+                const obj = entity as WorldObject;
+                return (
+                    <div
+                        key={obj.id}
+                        className={`absolute select-none transition-transform duration-200 ${hitEffects.includes(obj.id) ? 'animate-shake' : ''}`}
+                        style={{
+                            left: obj.position.x,
+                            top: obj.position.y,
+                            fontSize: `${obj.size}rem`,
+                            transform: 'translate(-50%, -50%)',
+                            lineHeight: 1,
+                        }}
+                    >
+                        {obj.emoji}
+                    </div>
+                );
+            })}
 
-            {/* Player */}
-            <div
-                className="absolute w-10 h-10 bg-blue-500 rounded-full border-2 border-black"
-                style={{ left: playerPosition.x, top: playerPosition.y, transform: 'translate(-50%, -50%)' }}
-            />
+            {/* Hitbox Visualization */}
+            {settings.showHitboxes && (
+                <>
+                    {/* Player Hitbox */}
+                    <div style={{
+                        position: 'absolute',
+                        left: `${playerHitbox.x}px`,
+                        top: `${playerHitbox.y}px`,
+                        width: `${playerHitbox.radius * 2}px`,
+                        height: `${playerHitbox.radius * 2}px`,
+                        backgroundColor: 'rgba(255, 0, 0, 0.4)',
+                        border: '1px solid red',
+                        borderRadius: '50%',
+                        transform: `translate(-50%, -50%)`,
+                        zIndex: 999,
+                    }} />
+                    {/* World Object Hitboxes */}
+                    {worldObjects.map(obj => {
+                        if (!obj.hitbox) return null;
+                        return (
+                            <div key={`hitbox-${obj.id}`} style={{
+                                position: 'absolute',
+                                left: obj.position.x,
+                                top: obj.position.y + obj.hitbox.offsetY,
+                                width: `${obj.hitbox.width}px`,
+                                height: `${obj.hitbox.height}px`,
+                                backgroundColor: 'rgba(0, 0, 255, 0.4)',
+                                border: '1px solid blue',
+                                transform: 'translate(-50%, -50%)',
+                                zIndex: 998,
+                            }} />
+                        );
+                    })}
+                </>
+            )}
+
 
             {/* UI */}
-            <div className="absolute top-4 right-4 z-10">
-                <button onClick={handlePause} className="w-12 h-12 bg-gray-500/50 text-white text-2xl rounded-md flex items-center justify-center active:bg-gray-600/50">||</button>
-            </div>
-            
-            {settings.showFps && (
-                <div className="absolute top-4 left-4 bg-black/50 text-white p-2 rounded-md z-10">
-                    FPS: {fps}
+            <div 
+                className="absolute top-0 left-0 w-full h-full pointer-events-none"
+                onMouseDown={(e) => e.stopPropagation()} 
+                onTouchStart={(e) => e.stopPropagation()}
+            >
+                <div className="absolute top-4 right-4 z-10 pointer-events-auto">
+                    <button onClick={handlePause} className="w-12 h-12 bg-gray-500/50 text-white text-2xl rounded-md flex items-center justify-center active:bg-gray-600/50">||</button>
                 </div>
-            )}
+                
+                {settings.showFps && (
+                    <div className="absolute top-4 left-4 bg-black/50 text-white p-2 rounded-md z-10 pointer-events-auto">
+                        FPS: {fps}
+                    </div>
+                )}
+                
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-2 bg-black/20 p-2 rounded-lg z-10 pointer-events-auto">
+                    {Array.from({ length: 6 }).map((_, i) => {
+                        if (i < 5) {
+                            const item = inventory[i];
+                            const isSelected = selectedSlot === i;
+                            return (
+                                <div
+                                    key={i}
+                                    onClick={(e) => handleSlotClick(e, i)}
+                                    style={hotbarSlotStyle}
+                                    className={`relative bg-black/30 border-2 rounded-md flex items-center justify-center cursor-pointer transition-all ${isSelected ? 'border-yellow-400 scale-110' : 'border-gray-500'}`}
+                                >
+                                {item && (
+                                        <>
+                                            <span>{getItemEmoji(item.type)}</span>
+                                            <span className="absolute bottom-0 right-1 text-white text-lg font-bold" style={{ textShadow: '1px 1px 2px black', fontSize: `${settings.inventorySize * 0.25}px` }}>
+                                                {item.quantity}
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            );
+                        } else {
+                            return (
+                                <div key={i} style={hotbarBagStyle} className="bg-black/50 border-2 border-gray-500 rounded-md flex items-center justify-center">🎒</div>
+                            );
+                        }
+                    })}
+                </div>
+
+
+                <div className="absolute bottom-4 right-4 flex flex-col gap-4 z-10 pointer-events-auto">
+                    <button 
+                        onMouseDown={(e) => handleActionPress(e, handlePunch)}
+                        onTouchStart={(e) => handleActionPress(e, handlePunch)}
+                        style={actionButtonStyle}
+                        className="bg-red-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-red-800 active:bg-red-600"
+                    >
+                            Бить
+                    </button>
+                    <button 
+                        onMouseDown={(e) => handleActionPress(e, handlePlaceItem)}
+                        onTouchStart={(e) => handleActionPress(e, handlePlaceItem)}
+                        disabled={selectedSlot === null}
+                        style={actionButtonStyle}
+                        className="bg-yellow-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-yellow-800 active:bg-yellow-600 disabled:bg-gray-600/80 disabled:border-gray-800 disabled:cursor-not-allowed"
+                    >
+                        Строить
+                    </button>
+                </div>
+
+                <div className="absolute bottom-4 left-4 z-10 pointer-events-auto">
+                    <Joystick onMove={handleJoystickMove} size={settings.joystickSize} />
+                </div>
+            </div>
             
-            {/* Inventory Hotbar */}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-2 bg-black/20 p-2 rounded-lg z-10">
-                {Array.from({ length: 6 }).map((_, i) => {
-                    if (i < 5) {
-                        const item = inventory[i];
-                        const isSelected = selectedSlot === i;
-                        return (
-                            <div
-                                key={i}
-                                onClick={() => handleSlotClick(i)}
-                                style={hotbarSlotStyle}
-                                className={`relative bg-black/30 border-2 rounded-md flex items-center justify-center cursor-pointer transition-all ${isSelected ? 'border-yellow-400 scale-110' : 'border-gray-500'}`}
-                            >
-                               {item && (
-                                    <>
-                                        <span>{getItemEmoji(item.type)}</span>
-                                        <span className="absolute bottom-0 right-1 text-white text-lg font-bold" style={{ textShadow: '1px 1px 2px black', fontSize: `${settings.inventorySize * 0.25}px` }}>
-                                            {item.quantity}
-                                        </span>
-                                    </>
-                                )}
-                            </div>
-                        );
-                    } else {
-                        return (
-                            <div key={i} style={hotbarBagStyle} className="bg-black/50 border-2 border-gray-500 rounded-md flex items-center justify-center">🎒</div>
-                        );
-                    }
-                })}
-            </div>
-
-
-            <div className="absolute bottom-4 right-4 flex flex-col gap-4 z-10">
-                 <button 
-                    onMouseDown={(e) => handleActionPress(e, handlePunch)}
-                    onTouchStart={(e) => handleActionPress(e, handlePunch)}
-                    style={actionButtonStyle}
-                    className="bg-red-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-red-800 active:bg-red-600"
-                >
-                        Бить
-                </button>
-                 <button 
-                    onMouseDown={(e) => handleActionPress(e, handlePlaceItem)}
-                    onTouchStart={(e) => handleActionPress(e, handlePlaceItem)}
-                    disabled={selectedSlot === null}
-                    style={actionButtonStyle}
-                    className="bg-yellow-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-yellow-800 active:bg-yellow-600 disabled:bg-gray-600/80 disabled:border-gray-800 disabled:cursor-not-allowed"
-                 >
-                    Строить
-                </button>
-            </div>
-
-            <div className="absolute bottom-4 left-4 z-10">
-                <Joystick onMove={handleJoystickMove} size={settings.joystickSize} />
-            </div>
-            
-            {/* Pause Menu */}
             {gameState === 'paused' && (
                 <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-20">
                     <h2 className="text-5xl font-bold mb-8">Пауза</h2>

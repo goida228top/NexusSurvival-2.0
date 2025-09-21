@@ -78,6 +78,21 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack }) =>
                         />
                     </button>
                 </div>
+
+                <div className="flex items-center justify-between">
+                    <label htmlFor="showHitboxes" className="text-lg">Показывать хитбоксы</label>
+                    <button
+                        id="showHitboxes"
+                        role="switch"
+                        aria-checked={settings.showHitboxes}
+                        onClick={() => handleSettingChange('showHitboxes', !settings.showHitboxes)}
+                        className={`relative inline-flex items-center h-8 w-14 rounded-full transition-colors ${settings.showHitboxes ? 'bg-green-500' : 'bg-gray-600'}`}
+                    >
+                        <span
+                            className={`inline-block w-6 h-6 transform bg-white rounded-full transition-transform ${settings.showHitboxes ? 'translate-x-7' : 'translate-x-1'}`}
+                        />
+                    </button>
+                </div>
             </div>
 
             <button

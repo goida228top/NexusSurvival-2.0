@@ -33,6 +33,7 @@ const Joystick: React.FC<JoystickProps> = ({ onMove, size }) => {
 
   // Mouse Handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
     e.preventDefault();
     if (dragSource.current) return;
     dragSource.current = 'mouse';
@@ -54,6 +55,7 @@ const Joystick: React.FC<JoystickProps> = ({ onMove, size }) => {
 
   // Touch Handlers
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    e.stopPropagation();
     e.preventDefault();
     if (dragSource.current) return;
     
