@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import Joystick from './Joystick';
 import Player from './Player';
@@ -93,7 +92,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
 
     const keysPressed = useRef<{ [key: string]: boolean }>({});
     const joystickVector = useRef({ x: 0, y: 0 });
-    const isSprinting = useRef(false);
     const gameLoopRef = useRef<number | null>(null);
     const nextObjectId = useRef<number>(initialWorldObjects.length + 1);
     
@@ -102,6 +100,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
     
     const lastTimeRef = useRef<number>(performance.now());
     const frameCountRef = useRef<number>(0);
+    const handlePunchRef = useRef(handlePunch);
 
 
     const handlePause = () => {
@@ -116,113 +115,60 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
         setGameState('menu');
     }
 
+    // Update the ref to the latest handlePunch function on every render.
+    // This allows the event listener to call the up-to-date function
+    // without needing to re-register itself.
+    useEffect(() => {
+        handlePunchRef.current = handlePunch;
+    });
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            keysPressed.current[e.key.toLowerCase()] = true;
-            if (e.key === 'Shift') isSprinting.current = true;
-            if (e.key === 'ц') keysPressed.current['w'] = true;
-            if (e.key === 'ф') keysPressed.current['a'] = true;
-            if (e.key === 'ы') keysPressed.current['s'] = true;
-            if (e.key === 'в') keysPressed.current['d'] = true;
+            if (e.key === ' ' && !e.repeat) {
+                e.preventDefault();
+                handlePunchRef.current();
+                return;
+            }
+
+            const key = e.key.toLowerCase();
+            keysPressed.current[key] = true;
+
+            // Map Russian layout to WASD
+            if (key === 'ц') keysPressed.current['w'] = true;
+            if (key === 'ф') keysPressed.current['a'] = true;
+            if (key === 'ы') keysPressed.current['s'] = true;
+            if (key === 'в') keysPressed.current['d'] = true;
         };
+
         const handleKeyUp = (e: KeyboardEvent) => {
-            keysPressed.current[e.key.toLowerCase()] = false;
-            if (e.key === 'Shift') isSprinting.current = false;
-            if (e.key === 'ц') keysPressed.current['w'] = false;
-            if (e.key === 'ф') keysPressed.current['a'] = false;
-            if (e.key === 'ы') keysPressed.current['s'] = false;
-            if (e.key === 'в') keysPressed.current['d'] = false;
+            const key = e.key.toLowerCase();
+            // This ensures that releasing any key, including Shift, updates its state to "not pressed".
+            keysPressed.current[key] = false;
+
+            // Map Russian layout to WASD
+            if (key === 'ц') keysPressed.current['w'] = false;
+            if (key === 'ф') keysPressed.current['a'] = false;
+            if (key === 'ы') keysPressed.current['s'] = false;
+            if (key === 'в') keysPressed.current['d'] = false;
+        };
+        
+        // Reset keys on window blur to prevent "sticky keys"
+        const handleBlur = () => {
+            keysPressed.current = {};
         };
 
         window.addEventListener('keydown', handleKeyDown);
         window.addEventListener('keyup', handleKeyUp);
+        window.addEventListener('blur', handleBlur);
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('keyup', handleKeyUp);
+            window.removeEventListener('blur', handleBlur);
         };
     }, []);
 
     useEffect(() => {
         const gameLoop = () => {
-            if (gameState === 'playing') {
-                let moveX = 0;
-                let moveY = 0;
-
-                if (keysPressed.current['w']) moveY -= 1;
-                if (keysPressed.current['s']) moveY += 1;
-                if (keysPressed.current['a']) moveX -= 1;
-                if (keysPressed.current['d']) moveX += 1;
-
-                moveX += joystickVector.current.x;
-                moveY += joystickVector.current.y;
-
-                let targetVelocityX = 0;
-                let targetVelocityY = 0;
-
-                const magnitude = Math.sqrt(moveX * moveX + moveY * moveY);
-                if (magnitude > 0) {
-                    const normalizedX = moveX / magnitude;
-                    const normalizedY = moveY / magnitude;
-                    
-                    targetRotation.current = Math.atan2(normalizedY, normalizedX) * (180 / Math.PI) + 90;
-
-                    const baseSpeed = 1.5;
-                    const sprintSpeed = 4.5;
-                    const currentSpeed = isSprinting.current ? sprintSpeed : baseSpeed;
-
-                    targetVelocityX = normalizedX * currentSpeed;
-                    targetVelocityY = normalizedY * currentSpeed;
-                }
-                
-                const acceleration = 0.1;
-                const rotationSpeed = 0.15;
-
-                playerVelocity.current.x = lerp(playerVelocity.current.x, targetVelocityX, acceleration);
-                playerVelocity.current.y = lerp(playerVelocity.current.y, targetVelocityY, acceleration);
-
-                setPlayerRotation(prevRotation => lerpAngle(prevRotation, targetRotation.current, rotationSpeed));
-
-                const nextX = playerPosition.x + playerVelocity.current.x;
-                const nextY = playerPosition.y + playerVelocity.current.y;
-
-                let finalX = playerPosition.x;
-                let finalY = playerPosition.y;
-
-                // Проверка столкновений по оси X
-                const playerHitboxX = getPlayerHitbox({ x: nextX, y: playerPosition.y });
-                let canMoveX = true;
-                for (const obj of worldObjects) {
-                    const objHitbox = getObjectHitbox(obj);
-                    if (objHitbox && checkCircleAABBCollision(playerHitboxX, objHitbox)) {
-                        canMoveX = false;
-                        playerVelocity.current.x = 0;
-                        break;
-                    }
-                }
-                if (canMoveX) {
-                    finalX = nextX;
-                }
-
-                // Проверка столкновений по оси Y
-                const playerHitboxY = getPlayerHitbox({ x: finalX, y: nextY });
-                let canMoveY = true;
-                for (const obj of worldObjects) {
-                    const objHitbox = getObjectHitbox(obj);
-                    if (objHitbox && checkCircleAABBCollision(playerHitboxY, objHitbox)) {
-                        canMoveY = false;
-                        playerVelocity.current.y = 0;
-                        break;
-                    }
-                }
-                if (canMoveY) {
-                    finalY = nextY;
-                }
-                
-                if(finalX !== playerPosition.x || finalY !== playerPosition.y) {
-                    setPlayerPosition({ x: finalX, y: finalY });
-                }
-            }
-
             const now = performance.now();
             frameCountRef.current++;
             if (now - lastTimeRef.current >= 1000) {
@@ -231,15 +177,121 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
                 lastTimeRef.current = now;
             }
 
+            if (gameState === 'playing') {
+                // --- Input Gathering ---
+                let moveX = 0;
+                let moveY = 0;
+                let hasMovementInput = false;
+
+                if (keysPressed.current['w']) { moveY -= 1; hasMovementInput = true; }
+                if (keysPressed.current['s']) { moveY += 1; hasMovementInput = true; }
+                if (keysPressed.current['a']) { moveX -= 1; hasMovementInput = true; }
+                if (keysPressed.current['d']) { moveX += 1; hasMovementInput = true; }
+                
+                // Also consider joystick as movement input
+                if (joystickVector.current.x !== 0 || joystickVector.current.y !== 0) {
+                    moveX += joystickVector.current.x;
+                    moveY += joystickVector.current.y;
+                    hasMovementInput = true;
+                }
+                
+                // --- Target Velocity Calculation ---
+                const rotationSpeed = 0.25;
+                let targetVelX = 0;
+                let targetVelY = 0;
+
+                if (hasMovementInput) {
+                    const magnitude = Math.sqrt(moveX * moveX + moveY * moveY);
+                    
+                    if (magnitude > 0.01) { 
+                        const normalizedX = moveX / magnitude;
+                        const normalizedY = moveY / magnitude;
+                        
+                        targetRotation.current = Math.atan2(normalizedY, normalizedX) * (180 / Math.PI) + 90;
+
+                        const baseSpeed = 2.5;
+                        const isSprinting = keysPressed.current['shift'];
+                        const sprintMultiplier = 1.6;
+                        const speed = isSprinting ? baseSpeed * sprintMultiplier : baseSpeed;
+
+                        targetVelX = normalizedX * speed;
+                        targetVelY = normalizedY * speed;
+                    }
+                }
+                
+                // --- Smooth Velocity & Rotation Update ---
+                const moveResponsiveness = 0.25; // How quickly we accelerate
+                const stopResponsiveness = 0.4; // How quickly we decelerate. A higher value means a faster stop.
+
+                const responsiveness = hasMovementInput ? moveResponsiveness : stopResponsiveness;
+                
+                playerVelocity.current.x = lerp(playerVelocity.current.x, targetVelX, responsiveness);
+                playerVelocity.current.y = lerp(playerVelocity.current.y, targetVelY, responsiveness);
+
+                // Snap to zero if velocity is very low to prevent sliding, only when stopping.
+                if (!hasMovementInput) {
+                    if (Math.abs(playerVelocity.current.x) < 0.05) playerVelocity.current.x = 0;
+                    if (Math.abs(playerVelocity.current.y) < 0.05) playerVelocity.current.y = 0;
+                }
+
+                setPlayerRotation(prevRotation => lerpAngle(prevRotation, targetRotation.current, rotationSpeed));
+
+                // --- Position Update & Collision Detection (using functional state update) ---
+                setPlayerPosition(currentPosition => {
+                    const nextX = currentPosition.x + playerVelocity.current.x;
+                    const nextY = currentPosition.y + playerVelocity.current.y;
+                    let finalX = currentPosition.x;
+                    let finalY = currentPosition.y;
+
+                    // X-axis collision check
+                    const playerHitboxX = getPlayerHitbox({ x: nextX, y: currentPosition.y });
+                    let canMoveX = true;
+                    for (const obj of worldObjects) {
+                        const objHitbox = getObjectHitbox(obj);
+                        if (objHitbox && checkCircleAABBCollision(playerHitboxX, objHitbox)) {
+                            canMoveX = false;
+                            playerVelocity.current.x = 0; // Stop velocity on collision
+                            break;
+                        }
+                    }
+                    if (canMoveX) {
+                        finalX = nextX;
+                    }
+
+                    // Y-axis collision check
+                    const playerHitboxY = getPlayerHitbox({ x: finalX, y: nextY });
+                    let canMoveY = true;
+                    for (const obj of worldObjects) {
+                        const objHitbox = getObjectHitbox(obj);
+                        if (objHitbox && checkCircleAABBCollision(playerHitboxY, objHitbox)) {
+                            canMoveY = false;
+                            playerVelocity.current.y = 0; // Stop velocity on collision
+                            break;
+                        }
+                    }
+                    if (canMoveY) {
+                        finalY = nextY;
+                    }
+                    
+                    if (finalX !== currentPosition.x || finalY !== currentPosition.y) {
+                        return { x: finalX, y: finalY };
+                    }
+                    return currentPosition; // Return same object if no change
+                });
+            }
+
             gameLoopRef.current = requestAnimationFrame(gameLoop);
         };
+        
         gameLoopRef.current = requestAnimationFrame(gameLoop);
+        
         return () => {
             if (gameLoopRef.current) {
                 cancelAnimationFrame(gameLoopRef.current);
             }
         };
-    }, [gameState, worldObjects, playerPosition]);
+    }, [gameState, worldObjects]); // Removed playerPosition from dependencies for a stable loop
+
 
     const handleJoystickMove = (x: number, y: number) => {
         joystickVector.current = { x, y };
@@ -273,7 +325,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
         });
     };
     
-    const handlePunch = () => {
+    function handlePunch() {
         if (gameState !== 'playing') return;
 
         setShowPunchIndicator(true);
@@ -391,17 +443,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
         action();
     };
 
-    const handleSprintStart = (e: React.SyntheticEvent) => {
-        if (e.target === e.currentTarget) {
-            isSprinting.current = true;
-        }
-    };
-
-    const handleSprintEnd = () => {
-        isSprinting.current = false;
-    };
-
-
     const actionButtonStyle: React.CSSProperties = {
         width: `${settings.buttonSize}px`,
         height: `${settings.buttonSize}px`,
@@ -437,16 +478,12 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
 
     const playerHitbox = getPlayerHitbox(playerPosition);
 
+    const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+
 
     return (
         <div 
             className="relative w-full h-full bg-green-400 overflow-hidden select-none"
-            onMouseDown={handleSprintStart}
-            onMouseUp={handleSprintEnd}
-            onMouseLeave={handleSprintEnd}
-            onTouchStart={handleSprintStart}
-            onTouchEnd={handleSprintEnd}
-            onTouchCancel={handleSprintEnd}
         >
             {renderableEntities.map(entity => {
                 if (entity.type === 'player') {
@@ -459,11 +496,11 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
                                 top: entity.position.y,
                             }}
                         >
-                            <Player rotation={playerRotation} />
-                             <InteractionIndicator
+                            <InteractionIndicator
                                 rotation={playerRotation}
                                 type={selectedSlot !== null ? 'build' : (showPunchIndicator ? 'punch' : 'none')}
                             />
+                            <Player rotation={playerRotation} />
                         </div>
                     );
                 }
@@ -576,7 +613,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
                         style={actionButtonStyle}
                         className="bg-red-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-red-800 active:bg-red-600"
                     >
-                            Бить
+                            Бить{!isTouchDevice && ' (Пробел)'}
                     </button>
                     <button 
                         onMouseDown={(e) => handleActionPress(e, handlePlaceItem)}
