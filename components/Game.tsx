@@ -29,9 +29,9 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
     const [fps, setFps] = useState(0);
 
     const keysPressed = useRef<{ [key: string]: boolean }>({});
+    const joystickVector = useRef({ x: 0, y: 0 });
     const gameLoopRef = useRef<number | null>(null);
     const nextObjectId = useRef<number>(initialWorldObjects.length + 1);
-    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     
     // FPS counter refs
     const lastTimeRef = useRef<number>(performance.now());
@@ -80,15 +80,33 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
     useEffect(() => {
         const gameLoop = () => {
             if (gameState === 'playing') {
-                setPlayerPosition(prev => {
-                    let { x, y } = prev;
+                let moveX = 0;
+                let moveY = 0;
+
+                // Keyboard input
+                if (keysPressed.current['w']) moveY -= 1;
+                if (keysPressed.current['s']) moveY += 1;
+                if (keysPressed.current['a']) moveX -= 1;
+                if (keysPressed.current['d']) moveX += 1;
+
+                // Joystick input
+                moveX += joystickVector.current.x;
+                moveY += joystickVector.current.y;
+
+                // Normalize vector to prevent faster diagonal movement and cap input
+                const magnitude = Math.sqrt(moveX * moveX + moveY * moveY);
+                if (magnitude > 1) {
+                    moveX /= magnitude;
+                    moveY /= magnitude;
+                }
+
+                if (moveX !== 0 || moveY !== 0) {
                     const speed = 3;
-                    if (keysPressed.current['w']) y -= speed;
-                    if (keysPressed.current['s']) y += speed;
-                    if (keysPressed.current['a']) x -= speed;
-                    if (keysPressed.current['d']) x += speed;
-                    return { x, y };
-                });
+                    setPlayerPosition(prev => ({
+                        x: prev.x + moveX * speed,
+                        y: prev.y + moveY * speed,
+                    }));
+                }
             }
 
             // FPS calculation
@@ -111,11 +129,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
     }, [gameState]);
 
     const handleJoystickMove = (x: number, y: number) => {
-         if (gameState !== 'playing') return;
-        setPlayerPosition(prev => ({
-            x: prev.x + x * 3,
-            y: prev.y + y * 3
-        }));
+        joystickVector.current = { x, y };
     };
 
     const addToInventory = (itemType: InventoryItemType) => {
@@ -341,11 +355,9 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
                 </button>
             </div>
 
-            {isTouchDevice && (
-                 <div className="absolute bottom-4 left-4 z-10">
-                    <Joystick onMove={handleJoystickMove} size={settings.joystickSize} />
-                 </div>
-            )}
+            <div className="absolute bottom-4 left-4 z-10">
+                <Joystick onMove={handleJoystickMove} size={settings.joystickSize} />
+            </div>
             
             {/* Pause Menu */}
             {gameState === 'paused' && (
