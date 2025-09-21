@@ -2,9 +2,10 @@ import React, { useState, useRef } from 'react';
 
 interface JoystickProps {
   onMove: (x: number, y: number) => void;
+  size: number;
 }
 
-const Joystick: React.FC<JoystickProps> = ({ onMove }) => {
+const Joystick: React.FC<JoystickProps> = ({ onMove, size }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const baseRef = useRef<HTMLDivElement>(null);
@@ -40,21 +41,30 @@ const Joystick: React.FC<JoystickProps> = ({ onMove }) => {
     onMove(0,0);
   };
 
+  const baseStyle: React.CSSProperties = {
+    width: `${size}px`,
+    height: `${size}px`,
+  };
+
+  const handleStyle: React.CSSProperties = {
+    width: `${size / 2}px`,
+    height: `${size / 2}px`,
+    transform: `translate(${position.x}px, ${position.y}px)`,
+    transition: isDragging ? 'none' : 'transform 0.1s ease-out'
+  };
+
   return (
     <div
       ref={baseRef}
-      className="relative w-40 h-40 bg-gray-500/30 rounded-full flex items-center justify-center"
+      className="relative bg-gray-500/30 rounded-full flex items-center justify-center"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
-      style={{ touchAction: 'none' }} // Prevents page scroll on touch
+      style={{ ...baseStyle, touchAction: 'none' }} // Prevents page scroll on touch
     >
       <div
-        className="absolute w-20 h-20 bg-gray-600/70 rounded-full border-2 border-gray-400"
-        style={{
-          transform: `translate(${position.x}px, ${position.y}px)`,
-          transition: isDragging ? 'none' : 'transform 0.1s ease-out'
-        }}
+        className="absolute bg-gray-600/70 rounded-full border-2 border-gray-400"
+        style={handleStyle}
       ></div>
     </div>
   );

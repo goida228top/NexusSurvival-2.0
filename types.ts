@@ -15,3 +15,9 @@ export type InventoryItem = {
   type: InventoryItemType;
   quantity: number;
 };
+
+export type GameSettings = {
+  joystickSize: number;
+  buttonSize: number;
+  inventorySize: number;
+};

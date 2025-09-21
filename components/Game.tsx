@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Joystick from './Joystick';
-import type { Position, WorldObject, InventoryItem, InventoryItemType } from '../types';
+import type { Position, WorldObject, InventoryItem, InventoryItemType, GameSettings } from '../types';
 
 type GameState = 'menu' | 'mode-select' | 'playing' | 'paused';
 
 interface GameProps {
     gameState: GameState;
     setGameState: React.Dispatch<React.SetStateAction<GameState>>;
+    settings: GameSettings;
 }
 
 const initialWorldObjects: WorldObject[] = [
@@ -19,7 +20,7 @@ const initialWorldObjects: WorldObject[] = [
 ];
 
 
-const Game: React.FC<GameProps> = ({ gameState, setGameState }) => {
+const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
     const [playerPosition, setPlayerPosition] = useState<Position>({ x: 100, y: 100 });
     const [worldObjects, setWorldObjects] = useState<WorldObject[]>(initialWorldObjects);
     const [inventory, setInventory] = useState<(InventoryItem | undefined)[]>([]);
@@ -213,6 +214,23 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState }) => {
         }
     }
 
+    const actionButtonStyle: React.CSSProperties = {
+        width: `${settings.buttonSize}px`,
+        height: `${settings.buttonSize}px`,
+        fontSize: `${settings.buttonSize / 5}px`
+    };
+
+    const hotbarSlotStyle: React.CSSProperties = {
+        width: `${settings.inventorySize}px`,
+        height: `${settings.inventorySize}px`,
+        fontSize: `${settings.inventorySize * 0.6}px`,
+    }
+
+    const hotbarBagStyle: React.CSSProperties = {
+        ...hotbarSlotStyle,
+        fontSize: `${settings.inventorySize * 0.5}px`,
+    }
+
     return (
         <div className="relative w-full h-full bg-green-400 overflow-hidden select-none">
             {/* World Objects */}
@@ -253,12 +271,13 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState }) => {
                             <div
                                 key={i}
                                 onClick={() => handleSlotClick(i)}
-                                className={`relative w-16 h-16 bg-black/30 border-2 rounded-md flex items-center justify-center text-4xl cursor-pointer transition-all ${isSelected ? 'border-yellow-400 scale-110' : 'border-gray-500'}`}
+                                style={hotbarSlotStyle}
+                                className={`relative bg-black/30 border-2 rounded-md flex items-center justify-center cursor-pointer transition-all ${isSelected ? 'border-yellow-400 scale-110' : 'border-gray-500'}`}
                             >
                                {item && (
                                     <>
                                         <span>{getItemEmoji(item.type)}</span>
-                                        <span className="absolute bottom-0 right-1 text-white text-lg font-bold" style={{ textShadow: '1px 1px 2px black' }}>
+                                        <span className="absolute bottom-0 right-1 text-white text-lg font-bold" style={{ textShadow: '1px 1px 2px black', fontSize: `${settings.inventorySize * 0.25}px` }}>
                                             {item.quantity}
                                         </span>
                                     </>
@@ -267,7 +286,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState }) => {
                         );
                     } else {
                         return (
-                            <div key={i} className="w-16 h-16 bg-black/50 border-2 border-gray-500 rounded-md flex items-center justify-center text-3xl">🎒</div>
+                            <div key={i} style={hotbarBagStyle} className="bg-black/50 border-2 border-gray-500 rounded-md flex items-center justify-center">🎒</div>
                         );
                     }
                 })}
@@ -275,11 +294,17 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState }) => {
 
 
             <div className="absolute bottom-4 right-4 flex flex-col gap-4">
-                 <button onClick={handlePunch} className="w-24 h-24 bg-red-500/80 rounded-lg flex items-center justify-center text-white text-xl font-bold border-2 border-red-800 active:bg-red-600">Бить</button>
+                 <button 
+                    onClick={handlePunch} 
+                    style={actionButtonStyle}
+                    className="bg-red-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-red-800 active:bg-red-600">
+                        Бить
+                </button>
                  <button 
                     onClick={handlePlaceItem}
                     disabled={selectedSlot === null}
-                    className="w-24 h-24 bg-yellow-500/80 rounded-lg flex items-center justify-center text-white text-xl font-bold border-2 border-yellow-800 active:bg-yellow-600 disabled:bg-gray-600/80 disabled:border-gray-800 disabled:cursor-not-allowed"
+                    style={actionButtonStyle}
+                    className="bg-yellow-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-yellow-800 active:bg-yellow-600 disabled:bg-gray-600/80 disabled:border-gray-800 disabled:cursor-not-allowed"
                  >
                     Строить
                 </button>
@@ -287,7 +312,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState }) => {
 
             {isTouchDevice && (
                  <div className="absolute bottom-4 left-4">
-                    <Joystick onMove={handleJoystickMove} />
+                    <Joystick onMove={handleJoystickMove} size={settings.joystickSize} />
                  </div>
             )}
             
