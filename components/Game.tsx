@@ -26,10 +26,17 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
     const [inventory, setInventory] = useState<(InventoryItem | undefined)[]>([]);
     const [hitEffects, setHitEffects] = useState<number[]>([]); // stores IDs of hit objects for animation
     const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+    const [fps, setFps] = useState(0);
+
     const keysPressed = useRef<{ [key: string]: boolean }>({});
     const gameLoopRef = useRef<number | null>(null);
     const nextObjectId = useRef<number>(initialWorldObjects.length + 1);
     const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    
+    // FPS counter refs
+    const lastTimeRef = useRef<number>(performance.now());
+    const frameCountRef = useRef<number>(0);
+
 
     const handlePause = () => {
         setGameState('paused');
@@ -83,6 +90,16 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
                     return { x, y };
                 });
             }
+
+            // FPS calculation
+            const now = performance.now();
+            frameCountRef.current++;
+            if (now - lastTimeRef.current >= 1000) {
+                setFps(frameCountRef.current);
+                frameCountRef.current = 0;
+                lastTimeRef.current = now;
+            }
+
             gameLoopRef.current = requestAnimationFrame(gameLoop);
         };
         gameLoopRef.current = requestAnimationFrame(gameLoop);
@@ -214,6 +231,11 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
         }
     }
 
+    const handleActionPress = (e: React.SyntheticEvent, action: () => void) => {
+        e.preventDefault();
+        action();
+    };
+
     const actionButtonStyle: React.CSSProperties = {
         width: `${settings.buttonSize}px`,
         height: `${settings.buttonSize}px`,
@@ -257,12 +279,18 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
             />
 
             {/* UI */}
-            <div className="absolute top-4 right-4">
+            <div className="absolute top-4 right-4 z-10">
                 <button onClick={handlePause} className="w-12 h-12 bg-gray-500/50 text-white text-2xl rounded-md flex items-center justify-center active:bg-gray-600/50">||</button>
             </div>
             
+            {settings.showFps && (
+                <div className="absolute top-4 left-4 bg-black/50 text-white p-2 rounded-md z-10">
+                    FPS: {fps}
+                </div>
+            )}
+            
             {/* Inventory Hotbar */}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-2 bg-black/20 p-2 rounded-lg">
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-2 bg-black/20 p-2 rounded-lg z-10">
                 {Array.from({ length: 6 }).map((_, i) => {
                     if (i < 5) {
                         const item = inventory[i];
@@ -293,15 +321,18 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
             </div>
 
 
-            <div className="absolute bottom-4 right-4 flex flex-col gap-4">
+            <div className="absolute bottom-4 right-4 flex flex-col gap-4 z-10">
                  <button 
-                    onClick={handlePunch} 
+                    onMouseDown={(e) => handleActionPress(e, handlePunch)}
+                    onTouchStart={(e) => handleActionPress(e, handlePunch)}
                     style={actionButtonStyle}
-                    className="bg-red-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-red-800 active:bg-red-600">
+                    className="bg-red-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-red-800 active:bg-red-600"
+                >
                         Бить
                 </button>
                  <button 
-                    onClick={handlePlaceItem}
+                    onMouseDown={(e) => handleActionPress(e, handlePlaceItem)}
+                    onTouchStart={(e) => handleActionPress(e, handlePlaceItem)}
                     disabled={selectedSlot === null}
                     style={actionButtonStyle}
                     className="bg-yellow-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-yellow-800 active:bg-yellow-600 disabled:bg-gray-600/80 disabled:border-gray-800 disabled:cursor-not-allowed"
@@ -311,14 +342,14 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings }) => {
             </div>
 
             {isTouchDevice && (
-                 <div className="absolute bottom-4 left-4">
+                 <div className="absolute bottom-4 left-4 z-10">
                     <Joystick onMove={handleJoystickMove} size={settings.joystickSize} />
                  </div>
             )}
             
             {/* Pause Menu */}
             {gameState === 'paused' && (
-                <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center">
+                <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-20">
                     <h2 className="text-5xl font-bold mb-8">Пауза</h2>
                      <button onClick={handleResume} className="px-8 py-4 bg-green-600 text-white font-bold rounded-lg text-2xl hover:bg-green-700 transition-colors mb-4">
                         Продолжить

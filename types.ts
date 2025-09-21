@@ -20,4 +20,5 @@ export type GameSettings = {
   joystickSize: number;
   buttonSize: number;
   inventorySize: number;
+  showFps: boolean;
 };

@@ -9,10 +9,11 @@ interface SettingsProps {
 
 const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack }) => {
 
-    const handleSettingChange = (setting: keyof GameSettings, value: string) => {
+    const handleSettingChange = (setting: keyof GameSettings, value: string | boolean) => {
+        const isNumber = typeof settings[setting] === 'number';
         setSettings(prev => ({
             ...prev,
-            [setting]: Number(value),
+            [setting]: isNumber ? Number(value) : value,
         }));
     };
 
@@ -61,6 +62,21 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack }) =>
                         onChange={(e) => handleSettingChange('inventorySize', e.target.value)}
                         className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
                     />
+                </div>
+
+                 <div className="flex items-center justify-between">
+                    <label htmlFor="showFps" className="text-lg">Показывать FPS</label>
+                    <button
+                        id="showFps"
+                        role="switch"
+                        aria-checked={settings.showFps}
+                        onClick={() => handleSettingChange('showFps', !settings.showFps)}
+                        className={`relative inline-flex items-center h-8 w-14 rounded-full transition-colors ${settings.showFps ? 'bg-green-500' : 'bg-gray-600'}`}
+                    >
+                        <span
+                            className={`inline-block w-6 h-6 transform bg-white rounded-full transition-transform ${settings.showFps ? 'translate-x-7' : 'translate-x-1'}`}
+                        />
+                    </button>
                 </div>
             </div>
 

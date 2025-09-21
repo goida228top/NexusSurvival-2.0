@@ -9,16 +9,12 @@ const Joystick: React.FC<JoystickProps> = ({ onMove, size }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const baseRef = useRef<HTMLDivElement>(null);
+  const touchId = useRef<number | null>(null);
 
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    setIsDragging(true);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    if (!isDragging || !baseRef.current) return;
+  const handleMove = (touch: React.Touch | Touch) => {
+    if (!baseRef.current) return;
     
     const baseRect = baseRef.current.getBoundingClientRect();
-    const touch = e.touches[0];
     
     let x = touch.clientX - (baseRect.left + baseRect.width / 2);
     let y = touch.clientY - (baseRect.top + baseRect.height / 2);
@@ -35,7 +31,32 @@ const Joystick: React.FC<JoystickProps> = ({ onMove, size }) => {
     onMove(x / maxDistance, y / maxDistance);
   };
 
-  const handleTouchEnd = () => {
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (touchId.current !== null) return; // Already tracking a touch
+    
+    const touch = e.changedTouches[0];
+    touchId.current = touch.identifier;
+    setIsDragging(true);
+    handleMove(touch); // Process move immediately on start
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!isDragging || touchId.current === null) return;
+    
+    // Find the touch we are tracking
+    const touch = Array.from(e.targetTouches).find(t => t.identifier === touchId.current);
+    if (!touch) return; 
+
+    handleMove(touch);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    // Check if our tracked touch was among those that were lifted
+    const touch = Array.from(e.changedTouches).find(t => t.identifier === touchId.current);
+    if (!touch) return; // A different touch was lifted
+
+    touchId.current = null;
     setIsDragging(false);
     setPosition({ x: 0, y: 0 });
     onMove(0,0);
@@ -60,6 +81,7 @@ const Joystick: React.FC<JoystickProps> = ({ onMove, size }) => {
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd} // Handle cases like the finger leaving the screen
       style={{ ...baseStyle, touchAction: 'none' }} // Prevents page scroll on touch
     >
       <div

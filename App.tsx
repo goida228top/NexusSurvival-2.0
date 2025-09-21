@@ -9,6 +9,7 @@ const defaultSettings: GameSettings = {
     joystickSize: 160,
     buttonSize: 96,
     inventorySize: 64,
+    showFps: false,
 };
 
 const App: React.FC = () => {
