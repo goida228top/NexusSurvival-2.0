@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Game from './components/Game';
 import Settings from './components/Settings';
 import OnlineLobby from './components/OnlineLobby';
@@ -42,37 +43,37 @@ const App: React.FC = () => {
     }, [settings]);
 
 
-    const handlePlayClick = () => {
+    const handlePlayClick = useCallback(() => {
         setGameState('mode-select');
-    };
+    }, []);
     
-    const handleSettingsClick = () => {
+    const handleSettingsClick = useCallback(() => {
         setGameState('settings');
-    }
+    }, []);
 
-    const handleOfflineClick = () => {
+    const handleOfflineClick = useCallback(() => {
         setGameMode('offline');
         setDataChannel(null);
         setGameState('playing');
-    };
+    }, []);
 
-    const handleOnlineClick = () => {
+    const handleOnlineClick = useCallback(() => {
         setGameState('online-lobby');
-    };
+    }, []);
     
-    const handleConnectionEstablished = (channel: PeerJSDataConnection, peer: any) => {
+    const handleConnectionEstablished = useCallback((channel: PeerJSDataConnection, peer: any) => {
         peerRef.current = peer;
         setDataChannel(channel);
         setGameMode('online');
         setGameState('playing');
-    };
+    }, []);
 
 
-    const handleBackToMenu = () => {
+    const handleBackToMenu = useCallback(() => {
         setGameState('menu');
-    };
+    }, []);
     
-    const handleBackToMenuFromGame = () => {
+    const handleBackToMenuFromGame = useCallback(() => {
         if (peerRef.current) {
             console.log("Returning to menu, destroying peer connection.");
             peerRef.current.destroy();
@@ -80,11 +81,11 @@ const App: React.FC = () => {
         }
         setDataChannel(null); // Reset data channel state
         setGameState('menu');
-    };
+    }, []);
 
-    const handleBackToModeSelect = () => {
+    const handleBackToModeSelect = useCallback(() => {
         setGameState('mode-select');
-    };
+    }, []);
 
 
     const renderContent = () => {

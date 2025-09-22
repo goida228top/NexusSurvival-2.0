@@ -75,6 +75,12 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
     const peerRef = useRef<any | null>(null);
     const connRef = useRef<PeerJSDataConnection | null>(null);
     const connectionSuccessful = useRef(false);
+    const attemptedJoinId = useRef<string>(''); // For accurate error messages
+    const lobbyStateRef = useRef(lobbyState); // For accurate state in callbacks
+    useEffect(() => {
+        lobbyStateRef.current = lobbyState;
+    }, [lobbyState]);
+
 
     useEffect(() => {
         // If we've tried all servers and none worked
@@ -195,7 +201,7 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
                 console.error('PeerJS error:', err);
                 let userMessage = 'Произошла неизвестная ошибка.';
                 if (err.type === 'peer-unavailable') {
-                    userMessage = `Не удалось найти игрока с кодом: ${joinId}. Проверьте код и попробуйте снова.`;
+                    userMessage = `Не удалось найти игрока с кодом: ${attemptedJoinId.current}. Проверьте код и попробуйте снова.`;
                 } else if (err.type === 'server-error' || err.type === 'network') {
                      userMessage = 'Произошла ошибка сервера. Попробуйте перезагрузить страницу.';
                 }
@@ -209,7 +215,7 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
             });
             
              peer.on('disconnected', () => {
-                if(lobbyState !== 'error') {
+                if(lobbyStateRef.current !== 'error') {
                     setError('Отключено от сигнального сервера. Попробуйте перезагрузить страницу.');
                     setLobbyState('error');
                 }
@@ -222,7 +228,7 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
         }
 
         return cleanup;
-    }, [serverIndex, onConnect, joinId, lobbyState]);
+    }, [serverIndex, onConnect]);
 
     const handleCreateGame = () => {
         setError(null);
@@ -235,6 +241,7 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
             setError('Пожалуйста, введите код комнаты.');
             return;
         }
+        attemptedJoinId.current = trimmedId;
         setError(null);
         setLobbyState('connecting');
 
