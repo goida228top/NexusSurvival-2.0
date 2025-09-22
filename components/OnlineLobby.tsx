@@ -1,4 +1,5 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
 import type { PeerJSDataConnection } from '../types';
 
@@ -19,12 +20,6 @@ const PEER_SIGNALING_SERVERS = [
         port: 443,
         secure: true,
     },
-    {
-        host: 'peerjs.com', // Legacy server, as a fallback.
-        path: '/', // Corrected path from '/peerjs' to avoid duplication in the connection URL.
-        port: 443,
-        secure: true,
-    },
     { 
         host: 'peerjs-server.fly.dev',
         port: 443,
@@ -35,6 +30,12 @@ const PEER_SIGNALING_SERVERS = [
         host: 'peerjs.re-chat.ru',
         port: 443,
         path: '/',
+        secure: true,
+    },
+    { 
+        host: 'peerjs.92k.de', // Added another reliable public server
+        path: '/',
+        port: 443,
         secure: true,
     }
 ];
@@ -78,7 +79,7 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
     useEffect(() => {
         // If we've tried all servers and none worked
         if (serverIndex >= PEER_SIGNALING_SERVERS.length) {
-            setError('Не удалось подключиться ни к одному из доступных онлайн-сервисов. Проверьте ваше интернет-соединение или попробуйте позже.');
+            setError('Не удалось подключиться к онлайн-сервисам. Это может быть вызвано вашим интернет-соединением, VPN, прокси-сервером или настройками брандмауэра. Попробуйте отключить VPN или подключиться к другой сети.');
             setLobbyState('error');
             return;
         }
@@ -149,7 +150,7 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
                 const connTimeout = setTimeout(() => {
                     if (connRef.current && !connRef.current.open) {
                         console.error("Incoming connection timed out.");
-                        setError("Не удалось установить соединение с игроком. Попросите его попробовать снова.");
+                        setError("Не удалось установить соединение с игроком (тайм-аут). Попросите его попробовать снова.");
                         setLobbyState('waiting'); // Go back to waiting state
                         connRef.current?.close();
                         connRef.current = null;
@@ -221,7 +222,7 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
         }
 
         return cleanup;
-    }, [serverIndex, onConnect, joinId]);
+    }, [serverIndex, onConnect, joinId, lobbyState]);
 
     const handleCreateGame = () => {
         setError(null);
@@ -243,9 +244,9 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
         // Add a timeout to prevent getting stuck
         const connectionTimeout = setTimeout(() => {
             if (connRef.current && !connRef.current.open) {
-                console.error("Connection attempt timed out.");
+                console.error("Connection attempt timed out (as client).");
                 setError(
-                    "Не удалось подключиться к игроку. Попробуйте снова.\n\n" +
+                    "Не удалось подключиться к игроку (тайм-аут). Попробуйте снова.\n\n" +
                     "Совет: Убедитесь, что оба игрока находятся в одинаковых сетевых условиях (например, оба БЕЗ VPN, или оба в одной Wi-Fi сети)."
                 );
                 setLobbyState('idle'); // Go back to the main lobby view
@@ -299,11 +300,16 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
     const renderContent = () => {
         switch (lobbyState) {
             case 'initializing':
-                 return <p className="text-2xl animate-pulse text-center">Подключение к онлайн-сервису... (попытка {serverIndex + 1}/{PEER_SIGNALING_SERVERS.length})</p>;
+                 return (
+                    <div className="text-center">
+                        {serverIndex > 0 && <p className="text-yellow-400 mb-2">Не удалось подключиться к предыдущему серверу. Пробую следующий...</p>}
+                        <p className="text-2xl animate-pulse">Подключение к онлайн-сервису... (попытка {serverIndex + 1}/{PEER_SIGNALING_SERVERS.length})</p>
+                    </div>
+                );
             case 'error':
                 return (
                     <div className="text-center">
-                         <p className="text-red-500 mb-4 bg-red-900/50 p-3 rounded-md">{error}</p>
+                         <p className="text-red-500 mb-4 bg-red-900/50 p-3 rounded-md whitespace-pre-wrap">{error}</p>
                          <button onClick={onBack} className="mt-4 px-6 py-2 bg-red-600 text-white font-bold rounded-lg text-lg hover:bg-red-700">Назад</button>
                     </div>
                 );
