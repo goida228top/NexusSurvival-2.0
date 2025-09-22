@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Game from './components/Game';
 import Settings from './components/Settings';
 import OnlineLobby from './components/OnlineLobby';
-import type { GameSettings, GameState } from './types';
+import type { GameSettings, GameState, PeerJSDataConnection } from './types';
 
 const defaultSettings: GameSettings = {
     joystickSize: 160,
@@ -17,7 +17,7 @@ type GameMode = 'offline' | 'online';
 const App: React.FC = () => {
     const [gameState, setGameState] = useState<GameState>('menu');
     const [gameMode, setGameMode] = useState<GameMode>('offline');
-    const [dataChannel, setDataChannel] = useState<RTCDataChannel | null>(null);
+    const [dataChannel, setDataChannel] = useState<PeerJSDataConnection | null>(null);
     const [settings, setSettings] = useState<GameSettings>(() => {
         try {
             const savedSettings = localStorage.getItem('gameSettings');
@@ -59,7 +59,7 @@ const App: React.FC = () => {
         setGameState('online-lobby');
     };
     
-    const handleConnectionEstablished = (channel: RTCDataChannel) => {
+    const handleConnectionEstablished = (channel: PeerJSDataConnection) => {
         setDataChannel(channel);
         setGameMode('online');
         setGameState('playing');

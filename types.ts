@@ -34,3 +34,22 @@ export type GameSettings = {
 };
 
 export type GameState = 'menu' | 'mode-select' | 'online-lobby' | 'playing' | 'paused' | 'settings';
+
+/**
+ * Represents the PeerJS DataConnection object for type-safe communication.
+ */
+export interface PeerJSDataConnection {
+  on(event: 'data', callback: (data: any) => void): this;
+  on(event: 'open', callback: () => void): this;
+  on(event: 'close', callback: () => void): this;
+  on(event: 'error', callback: (err: Error) => void): this;
+  send(data: any): void;
+  close(): void;
+  open: boolean;
+  peer: string;
+  label: string;
+  reliable: boolean;
+  serialization: string;
+  type: string;
+  metadata: any;
+}

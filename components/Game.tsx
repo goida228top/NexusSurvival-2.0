@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import Joystick from './Joystick';
 import Player from './Player';
 import InteractionIndicator from './InteractionIndicator';
-import type { Position, WorldObject, InventoryItem, InventoryItemType, GameSettings, GameEntity, GameState } from '../types';
+import type { Position, WorldObject, InventoryItem, InventoryItemType, GameSettings, GameEntity, GameState, PeerJSDataConnection } from '../types';
 
 type GameMode = 'offline' | 'online';
 interface GameProps {
@@ -11,7 +10,7 @@ interface GameProps {
     setGameState: React.Dispatch<React.SetStateAction<GameState>>;
     settings: GameSettings;
     gameMode: GameMode;
-    dataChannel: RTCDataChannel | null;
+    dataChannel: PeerJSDataConnection | null;
 }
 
 const initialWorldObjects: WorldObject[] = [
@@ -119,10 +118,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     // --- Online Logic ---
     useEffect(() => {
         if (gameMode === 'online' && dataChannel) {
-            console.log("Game started in ONLINE mode. Data channel ready.", dataChannel.readyState);
+            console.log("Game started in ONLINE mode. Data channel ready.", dataChannel.open);
 
-            const handleMessage = (event: MessageEvent) => {
-                console.log("Received message:", event.data);
+            const handleData = (data: any) => {
+                console.log("Received data:", data);
                 // Here we will process incoming game state from the other player
             };
 
@@ -136,20 +135,21 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                  // Maybe show a "disconnected" message and go back to menu
                 setGameState('menu');
             };
-
-            dataChannel.addEventListener('message', handleMessage);
-            dataChannel.addEventListener('open', handleOpen);
-            dataChannel.addEventListener('close', handleClose);
             
-            if (dataChannel.readyState === 'open') {
-                handleOpen();
+            const handleError = (err: any) => {
+                console.error("Data channel error:", err);
             }
 
-            return () => {
-                dataChannel.removeEventListener('message', handleMessage);
-                dataChannel.removeEventListener('open', handleOpen);
-                dataChannel.removeEventListener('close', handleClose);
-            };
+            dataChannel.on('data', handleData);
+            dataChannel.on('open', handleOpen);
+            dataChannel.on('close', handleClose);
+            dataChannel.on('error', handleError);
+
+            if (dataChannel.open) {
+                handleOpen();
+            }
+            
+            // Cleanup is handled by the OnlineLobby component when the peer connection is destroyed.
         }
     }, [gameMode, dataChannel, setGameState]);
 
