@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import type { PeerJSDataConnection } from '../types';
 
@@ -107,7 +108,8 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
             // We pass 'undefined' for the ID to let the server assign one.
             const peer = new Peer(undefined, {
                 ...signalingServerConfig,
-                config: ICE_SERVERS // Use the combined STUN/TURN configuration
+                config: ICE_SERVERS, // Use the combined STUN/TURN configuration
+                debug: 3, // Enable verbose logging for WebRTC issues
             });
             peerRef.current = peer;
 
@@ -129,11 +131,52 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
 
             peer.on('connection', (conn: PeerJSDataConnection) => {
                 console.log(`Incoming connection from ${conn.peer}`);
+
+                // Prevent multiple incoming connections if one is already established
+                if (connRef.current && connRef.current.open) {
+                    console.warn("Already connected to a peer. Rejecting new connection.");
+                    conn.on('open', () => {
+                        conn.send("error:host-busy");
+                        setTimeout(() => conn.close(), 500);
+                    });
+                    return;
+                }
+
                 connRef.current = conn;
+                setLobbyState('connecting'); // Host is now also connecting
+                setError(null);
+
+                const connTimeout = setTimeout(() => {
+                    if (connRef.current && !connRef.current.open) {
+                        console.error("Incoming connection timed out.");
+                        setError("Не удалось установить соединение с игроком. Попросите его попробовать снова.");
+                        setLobbyState('waiting'); // Go back to waiting state
+                        connRef.current?.close();
+                        connRef.current = null;
+                    }
+                }, 15000); // 15 second timeout for host as well
+
                 conn.on('open', () => {
+                    clearTimeout(connTimeout);
                     console.log('✅ Data connection is open (as host)');
                     connectionSuccessful.current = true;
                     onConnect(conn, peerRef.current);
+                });
+
+                conn.on('error', (err: any) => {
+                    clearTimeout(connTimeout);
+                    console.error("Incoming data connection error:", err);
+                    setError(`Ошибка входящего соединения: ${err.message}.`);
+                    setLobbyState('waiting');
+                });
+
+                 conn.on('close', () => {
+                     clearTimeout(connTimeout);
+                     if (!connectionSuccessful.current) {
+                         console.log("Incoming connection closed before opening.");
+                         setLobbyState('waiting');
+                         connRef.current = null;
+                     }
                 });
             });
             
@@ -156,6 +199,10 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
                      userMessage = 'Произошла ошибка сервера. Попробуйте перезагрузить страницу.';
                 }
                 setError(userMessage);
+                if (connRef.current) {
+                    connRef.current.close();
+                    connRef.current = null;
+                }
                 setLobbyState('idle'); // Show error on idle screen
                 setJoinId(''); // Clear join id on error
             });
@@ -174,9 +221,12 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
         }
 
         return cleanup;
-    }, [serverIndex, onConnect]);
+    }, [serverIndex, onConnect, joinId]);
 
-    const handleCreateGame = () => setLobbyState('waiting');
+    const handleCreateGame = () => {
+        setError(null);
+        setLobbyState('waiting');
+    }
 
     const handleJoinGame = () => {
         const trimmedId = joinId.trim();
@@ -199,7 +249,7 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
                     "Совет: Убедитесь, что оба игрока находятся в одинаковых сетевых условиях (например, оба БЕЗ VPN, или оба в одной Wi-Fi сети)."
                 );
                 setLobbyState('idle'); // Go back to the main lobby view
-                conn.close();
+                connRef.current?.close();
             }
         }, 15000); // 15 second timeout
 
@@ -210,12 +260,30 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
             onConnect(conn, peerRef.current);
         });
         
-        // Handle connection-specific errors
+        conn.on('data', (data: any) => {
+            if (data === "error:host-busy") {
+                console.error("Connection rejected by host: host is busy.");
+                clearTimeout(connectionTimeout);
+                setError("Хост уже находится в игре с другим игроком.");
+                setLobbyState('idle');
+                conn.close();
+            }
+        });
+
         conn.on('error', (err: any) => {
             clearTimeout(connectionTimeout);
             console.error("Data connection error:", err);
             setError(`Ошибка подключения: ${err.message}. Проверьте код и сетевые настройки.`);
             setLobbyState('idle');
+        });
+
+        conn.on('close', () => {
+            clearTimeout(connectionTimeout);
+            if (!connectionSuccessful.current) {
+                console.log("Connection closed by peer before opening.");
+                setError("Хост отменил подключение или недоступен.");
+                setLobbyState('idle');
+            }
         });
     };
     
@@ -255,8 +323,8 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
             case 'connecting':
                 return (
                     <div className="text-center">
-                        <p className="text-2xl animate-pulse">Присоединение к игре...</p>
-                        <p className="text-sm text-gray-500 mt-2">Если подключение занимает много времени, проверьте код или попробуйте создать игру заново.</p>
+                        <p className="text-2xl animate-pulse">Устанавливаем соединение...</p>
+                        <p className="text-sm text-gray-500 mt-2">Если подключение занимает много времени, возможно, прямое соединение невозможно. Попробуйте перезапустить лобби.</p>
                     </div>
                 );
             case 'idle':
