@@ -6,7 +6,7 @@ declare const Peer: any;
 
 interface OnlineLobbyProps {
     onBack: () => void;
-    onConnect: (dataChannel: PeerJSDataConnection) => void;
+    onConnect: (dataChannel: PeerJSDataConnection, peer: any) => void;
 }
 
 // A list of public PeerJS signaling servers.
@@ -72,6 +72,7 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
 
     const peerRef = useRef<any | null>(null);
     const connRef = useRef<PeerJSDataConnection | null>(null);
+    const connectionSuccessful = useRef(false);
 
     useEffect(() => {
         // If we've tried all servers and none worked
@@ -83,6 +84,12 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
         
         // Cleanup function to destroy peer connection on component unmount or retry
         const cleanup = () => {
+            if (connectionSuccessful.current) {
+                console.log("Connection successful, not destroying peer object in lobby.");
+                return;
+            }
+            console.log("Cleaning up PeerJS instance from lobby.");
+
             if (peerRef.current) {
                 peerRef.current.destroy();
                 peerRef.current = null;
@@ -125,7 +132,8 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
                 connRef.current = conn;
                 conn.on('open', () => {
                     console.log('✅ Data connection is open (as host)');
-                    onConnect(conn);
+                    connectionSuccessful.current = true;
+                    onConnect(conn, peerRef.current);
                 });
             });
             
@@ -166,8 +174,7 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
         }
 
         return cleanup;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [serverIndex]);
+    }, [serverIndex, onConnect]);
 
     const handleCreateGame = () => setLobbyState('waiting');
 
@@ -199,7 +206,8 @@ const OnlineLobby: React.FC<OnlineLobbyProps> = ({ onBack, onConnect }) => {
         conn.on('open', () => {
             clearTimeout(connectionTimeout); // Success! Clear the timeout.
             console.log(`✅ Data connection is open (as client) to ${trimmedId}`);
-            onConnect(conn);
+            connectionSuccessful.current = true;
+            onConnect(conn, peerRef.current);
         });
         
         // Handle connection-specific errors

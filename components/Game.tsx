@@ -11,6 +11,7 @@ interface GameProps {
     settings: GameSettings;
     gameMode: GameMode;
     dataChannel: PeerJSDataConnection | null;
+    onBackToMenu: () => void;
 }
 
 const initialWorldObjects: WorldObject[] = [
@@ -80,7 +81,7 @@ const lerpAngle = (start: number, end: number, amt: number) => {
     return value % 360;
 }
 
-const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, dataChannel }) => {
+const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, dataChannel, onBackToMenu }) => {
     const [playerPosition, setPlayerPosition] = useState<Position>({ x: 100, y: 100 });
     const [playerRotation, setPlayerRotation] = useState(0);
     const [worldObjects, setWorldObjects] = useState<WorldObject[]>(initialWorldObjects);
@@ -111,10 +112,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         setGameState('playing');
     };
     
-    const handleBackToMenu = () => {
-        setGameState('menu');
-    }
-
     // --- Online Logic ---
     useEffect(() => {
         if (gameMode === 'online' && dataChannel) {
@@ -676,7 +673,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                      <button onClick={handleResume} className="px-8 py-4 bg-green-600 text-white font-bold rounded-lg text-2xl hover:bg-green-700 transition-colors mb-4">
                         Продолжить
                     </button>
-                    <button onClick={handleBackToMenu} className="px-8 py-4 bg-red-600 text-white font-bold rounded-lg text-2xl hover:bg-red-700 transition-colors">
+                    <button onClick={onBackToMenu} className="px-8 py-4 bg-red-600 text-white font-bold rounded-lg text-2xl hover:bg-red-700 transition-colors">
                         В меню
                     </button>
                 </div>

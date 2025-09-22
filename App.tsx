@@ -18,6 +18,7 @@ const App: React.FC = () => {
     const [gameState, setGameState] = useState<GameState>('menu');
     const [gameMode, setGameMode] = useState<GameMode>('offline');
     const [dataChannel, setDataChannel] = useState<PeerJSDataConnection | null>(null);
+    const peerRef = useRef<any | null>(null); // To manage the PeerJS instance
     const [settings, setSettings] = useState<GameSettings>(() => {
         try {
             const savedSettings = localStorage.getItem('gameSettings');
@@ -59,7 +60,8 @@ const App: React.FC = () => {
         setGameState('online-lobby');
     };
     
-    const handleConnectionEstablished = (channel: PeerJSDataConnection) => {
+    const handleConnectionEstablished = (channel: PeerJSDataConnection, peer: any) => {
+        peerRef.current = peer;
         setDataChannel(channel);
         setGameMode('online');
         setGameState('playing');
@@ -70,6 +72,16 @@ const App: React.FC = () => {
         setGameState('menu');
     };
     
+    const handleBackToMenuFromGame = () => {
+        if (peerRef.current) {
+            console.log("Returning to menu, destroying peer connection.");
+            peerRef.current.destroy();
+            peerRef.current = null;
+        }
+        setDataChannel(null); // Reset data channel state
+        setGameState('menu');
+    };
+
     const handleBackToModeSelect = () => {
         setGameState('mode-select');
     };
@@ -146,6 +158,7 @@ const App: React.FC = () => {
                             settings={settings} 
                             gameMode={gameMode}
                             dataChannel={dataChannel}
+                            onBackToMenu={handleBackToMenuFromGame}
                         />;
         }
     };
