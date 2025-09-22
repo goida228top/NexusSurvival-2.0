@@ -14,9 +14,17 @@ export type Player = {
   id: 'player';
   type: 'player';
   position: Position;
+  rotation: number;
 };
 
-export type GameEntity = WorldObject | Player;
+export type RemotePlayer = {
+  id: string;
+  type: 'remote-player';
+  position: Position;
+  rotation: number;
+};
+
+export type GameEntity = WorldObject | Player | RemotePlayer;
 
 export type InventoryItemType = 'wood' | 'stone';
 
@@ -33,23 +41,16 @@ export type GameSettings = {
   showHitboxes: boolean;
 };
 
-export type GameState = 'menu' | 'mode-select' | 'online-lobby' | 'playing' | 'paused' | 'settings';
+export type GameState = 'menu' | 'mode-select' | 'connecting' | 'playing' | 'paused' | 'settings';
 
-/**
- * Represents the PeerJS DataConnection object for type-safe communication.
- */
-export interface PeerJSDataConnection {
-  on(event: 'data', callback: (data: any) => void): this;
-  on(event: 'open', callback: () => void): this;
-  on(event: 'close', callback: () => void): this;
-  on(event: 'error', callback: (err: Error) => void): this;
-  send(data: any): void;
-  close(): void;
+// Fix: Add PeerJSDataConnection type definition.
+// This represents the DataConnection object from the PeerJS library.
+// Since PeerJS is loaded from a CDN, we define its type here for TypeScript to resolve the import error.
+export type PeerJSDataConnection = {
+  send: (data: any) => void;
+  close: () => void;
+  on: (event: 'data' | 'open' | 'close' | 'error', cb: (data?: any) => void) => void;
   open: boolean;
   peer: string;
-  label: string;
   reliable: boolean;
-  serialization: string;
-  type: string;
-  metadata: any;
-}
+};

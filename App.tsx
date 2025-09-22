@@ -2,8 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Game from './components/Game';
 import Settings from './components/Settings';
-import OnlineLobby from './components/OnlineLobby';
-import type { GameSettings, GameState, PeerJSDataConnection } from './types';
+import type { GameSettings, GameState } from './types';
 
 const defaultSettings: GameSettings = {
     joystickSize: 160,
@@ -18,8 +17,9 @@ type GameMode = 'offline' | 'online';
 const App: React.FC = () => {
     const [gameState, setGameState] = useState<GameState>('menu');
     const [gameMode, setGameMode] = useState<GameMode>('offline');
-    const [dataChannel, setDataChannel] = useState<PeerJSDataConnection | null>(null);
-    const peerRef = useRef<any | null>(null); // To manage the PeerJS instance
+    const [socket, setSocket] = useState<WebSocket | null>(null);
+    const [connectionError, setConnectionError] = useState<string | null>(null);
+
     const [settings, setSettings] = useState<GameSettings>(() => {
         try {
             const savedSettings = localStorage.getItem('gameSettings');
@@ -42,6 +42,15 @@ const App: React.FC = () => {
         }
     }, [settings]);
 
+    useEffect(() => {
+        // General cleanup for the socket when the App component unmounts.
+        return () => {
+            if (socket?.readyState === WebSocket.OPEN) {
+                console.log("App unmounting, closing socket.");
+                socket.close();
+            }
+        };
+    }, [socket]);
 
     const handlePlayClick = useCallback(() => {
         setGameState('mode-select');
@@ -53,39 +62,67 @@ const App: React.FC = () => {
 
     const handleOfflineClick = useCallback(() => {
         setGameMode('offline');
-        setDataChannel(null);
+        if (socket) {
+            socket.close();
+            setSocket(null);
+        }
         setGameState('playing');
-    }, []);
+    }, [socket]);
 
     const handleOnlineClick = useCallback(() => {
-        setGameState('online-lobby');
-    }, []);
-    
-    const handleConnectionEstablished = useCallback((channel: PeerJSDataConnection, peer: any) => {
-        peerRef.current = peer;
-        setDataChannel(channel);
-        setGameMode('online');
-        setGameState('playing');
-    }, []);
+        setGameState('connecting');
+        setConnectionError(null);
 
+        const newSocket = new WebSocket('ws://64.188.92.134:8080');
+
+        newSocket.onopen = () => {
+            console.log('WebSocket connection established.');
+            setSocket(newSocket);
+            setGameMode('online');
+            setGameState('playing');
+        };
+
+        newSocket.onclose = (event) => {
+            console.log('WebSocket connection closed.', event.reason);
+            // Don't show an error if we closed it intentionally
+            if (event.wasClean) return;
+
+            setConnectionError('Соединение с сервером потеряно.');
+            setSocket(null);
+            setGameState('mode-select');
+        };
+
+        newSocket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            setConnectionError('Не удалось подключиться к серверу. Убедитесь, что сервер запущен и доступен.');
+            setSocket(null);
+            setGameState('mode-select');
+        };
+    }, []);
 
     const handleBackToMenu = useCallback(() => {
+        if (socket) {
+            socket.close();
+            setSocket(null);
+        }
         setGameState('menu');
-    }, []);
+    }, [socket]);
     
     const handleBackToMenuFromGame = useCallback(() => {
-        if (peerRef.current) {
-            console.log("Returning to menu, destroying peer connection.");
-            peerRef.current.destroy();
-            peerRef.current = null;
+        if (socket) {
+            socket.close();
+            setSocket(null);
         }
-        setDataChannel(null); // Reset data channel state
         setGameState('menu');
-    }, []);
+    }, [socket]);
 
     const handleBackToModeSelect = useCallback(() => {
+        if (socket) {
+            socket.close();
+            setSocket(null);
+        }
         setGameState('mode-select');
-    }, []);
+    }, [socket]);
 
 
     const renderContent = () => {
@@ -120,7 +157,8 @@ const App: React.FC = () => {
                 );
             case 'mode-select':
                 return (
-                    <div className="w-full h-full flex flex-col items-center justify-center bg-black">
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-black p-4">
+                        {connectionError && <p className="mb-4 text-center text-red-400 bg-red-900/50 p-3 rounded-md">{connectionError}</p>}
                         <h2 className="text-4xl font-bold mb-8">Выберите режим</h2>
                         <div className="flex gap-4">
                             <button
@@ -144,12 +182,17 @@ const App: React.FC = () => {
                         </button>
                     </div>
                 );
-            case 'online-lobby':
+            case 'connecting':
                  return (
-                    <OnlineLobby 
-                        onBack={handleBackToModeSelect}
-                        onConnect={handleConnectionEstablished}
-                    />
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-black">
+                        <p className="text-2xl animate-pulse">Подключение к серверу...</p>
+                        <button
+                            onClick={handleBackToModeSelect}
+                            className="mt-8 px-6 py-2 bg-red-600 text-white font-bold rounded-lg text-lg hover:bg-red-700 transition-colors"
+                        >
+                            Отмена
+                        </button>
+                    </div>
                 );
             case 'playing':
             case 'paused':
@@ -158,7 +201,7 @@ const App: React.FC = () => {
                             setGameState={setGameState} 
                             settings={settings} 
                             gameMode={gameMode}
-                            dataChannel={dataChannel}
+                            socket={socket}
                             onBackToMenu={handleBackToMenuFromGame}
                         />;
         }

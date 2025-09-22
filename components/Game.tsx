@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Joystick from './Joystick';
 import Player from './Player';
 import InteractionIndicator from './InteractionIndicator';
-import type { Position, WorldObject, InventoryItem, InventoryItemType, GameSettings, GameEntity, GameState, PeerJSDataConnection } from '../types';
+import type { Position, WorldObject, InventoryItem, InventoryItemType, GameSettings, GameEntity, GameState, RemotePlayer } from '../types';
 
 type GameMode = 'offline' | 'online';
 interface GameProps {
@@ -10,7 +10,7 @@ interface GameProps {
     setGameState: React.Dispatch<React.SetStateAction<GameState>>;
     settings: GameSettings;
     gameMode: GameMode;
-    dataChannel: PeerJSDataConnection | null;
+    socket: WebSocket | null;
     onBackToMenu: () => void;
 }
 
@@ -81,7 +81,7 @@ const lerpAngle = (start: number, end: number, amt: number) => {
     return value % 360;
 }
 
-const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, dataChannel, onBackToMenu }) => {
+const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, socket, onBackToMenu }) => {
     const [playerPosition, setPlayerPosition] = useState<Position>({ x: 100, y: 100 });
     const [playerRotation, setPlayerRotation] = useState(0);
     const [worldObjects, setWorldObjects] = useState<WorldObject[]>(initialWorldObjects);
@@ -90,6 +90,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
     const [fps, setFps] = useState(0);
     const [showPunchIndicator, setShowPunchIndicator] = useState(false);
+
+    // Online State
+    const [myId, setMyId] = useState<string | null>(null);
+    const [remotePlayers, setRemotePlayers] = useState<{ [id: string]: RemotePlayer }>({});
 
     const keysPressed = useRef<{ [key: string]: boolean }>({});
     const joystickVector = useRef({ x: 0, y: 0 });
@@ -114,46 +118,108 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     
     // --- Online Logic ---
     useEffect(() => {
-        if (gameMode === 'online' && dataChannel) {
-            console.log("Game started in ONLINE mode. Data channel ready.", dataChannel.open);
-
-            const handleData = (data: any) => {
-                console.log("Received data:", data);
-                // Here we will process incoming game state from the other player
-            };
-
-            const handleOpen = () => {
-                console.log("Data channel opened!");
-                dataChannel.send("Hello from the other side!");
-            };
-
-            const handleClose = () => {
-                console.log("Data channel closed.");
-                 // Maybe show a "disconnected" message and go back to menu
-                setGameState('menu');
-            };
-            
-            const handleError = (err: any) => {
-                console.error("Data channel error:", err);
-            }
-
-            dataChannel.on('data', handleData);
-            dataChannel.on('open', handleOpen);
-            dataChannel.on('close', handleClose);
-            dataChannel.on('error', handleError);
-
-            if (dataChannel.open) {
-                handleOpen();
-            }
-            
-            // Cleanup is handled by the OnlineLobby component when the peer connection is destroyed.
+        if (gameMode !== 'online' || !socket) {
+            setMyId(null);
+            setRemotePlayers({});
+            return;
         }
-    }, [gameMode, dataChannel, setGameState]);
+
+        const handleMessage = (event: MessageEvent) => {
+            try {
+                const data = JSON.parse(event.data);
+
+                switch (data.type) {
+                    case 'INIT': {
+                        setMyId(data.payload.id);
+                        const otherPlayers = { ...data.payload.players };
+                        delete otherPlayers[data.payload.id];
+                        const initialRemotePlayers: { [id: string]: RemotePlayer } = {};
+                        for (const pid in otherPlayers) {
+                            initialRemotePlayers[pid] = {
+                                id: pid,
+                                type: 'remote-player',
+                                position: { x: otherPlayers[pid].x, y: otherPlayers[pid].y },
+                                rotation: otherPlayers[pid].rotation || 0,
+                            };
+                        }
+                        setRemotePlayers(initialRemotePlayers);
+                        break;
+                    }
+                    case 'STATE_UPDATE': {
+                        const allPlayers = data.payload;
+                        const newRemotePlayers: { [id: string]: RemotePlayer } = {};
+                        for (const pid in allPlayers) {
+                            if (pid !== myId) {
+                                newRemotePlayers[pid] = {
+                                    id: pid,
+                                    type: 'remote-player',
+                                    position: { x: allPlayers[pid].x, y: allPlayers[pid].y },
+                                    rotation: allPlayers[pid].rotation || 0,
+                                };
+                            }
+                        }
+                        setRemotePlayers(newRemotePlayers);
+                        break;
+                    }
+                    case 'PLAYER_JOIN': {
+                        const newPlayer = data.payload;
+                        if (newPlayer.id !== myId) {
+                            setRemotePlayers(prev => ({
+                                ...prev,
+                                [newPlayer.id]: {
+                                    id: newPlayer.id,
+                                    type: 'remote-player',
+                                    position: { x: newPlayer.x, y: newPlayer.y },
+                                    rotation: newPlayer.rotation || 0,
+                                }
+                            }));
+                        }
+                        break;
+                    }
+                    case 'PLAYER_LEAVE': {
+                        const { id: leftPlayerId } = data.payload;
+                        setRemotePlayers(prev => {
+                            const newPlayers = { ...prev };
+                            delete newPlayers[leftPlayerId];
+                            return newPlayers;
+                        });
+                        break;
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to parse message from server", e);
+            }
+        };
+
+        socket.addEventListener('message', handleMessage);
+
+        return () => {
+            socket.removeEventListener('message', handleMessage);
+        };
+    }, [gameMode, socket, myId]);
+    
+    // Throttled update sender to server
+    useEffect(() => {
+        if (gameMode !== 'online' || !socket || !myId) return;
+
+        const interval = setInterval(() => {
+            if (socket.readyState === WebSocket.OPEN) {
+                const payload = {
+                    id: myId,
+                    x: playerPosition.x,
+                    y: playerPosition.y,
+                    rotation: playerRotation,
+                };
+                socket.send(JSON.stringify({ type: 'MOVE', payload }));
+            }
+        }, 50); // Send updates 20 times per second
+
+        return () => clearInterval(interval);
+
+    }, [gameMode, socket, myId, playerPosition, playerRotation]);
 
 
     // Update the ref to the latest handlePunch function on every render.
-    // This allows the event listener to call the up-to-date function
-    // without needing to re-register itself.
     useEffect(() => {
         handlePunchRef.current = handlePunch;
     });
@@ -497,7 +563,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     }
     
     const getEntityFeetY = (entity: GameEntity) => {
-        if (entity.type === 'player') {
+        if (entity.type === 'player' || entity.type === 'remote-player') {
             return entity.position.y;
         }
         const obj = entity as WorldObject;
@@ -509,7 +575,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
     const renderableEntities: GameEntity[] = [
         ...worldObjects,
-        { id: 'player' as 'player', type: 'player' as 'player', position: playerPosition }
+        ...Object.values(remotePlayers),
+        { id: 'player', type: 'player', position: playerPosition, rotation: playerRotation }
     ].sort((a, b) => getEntityFeetY(a) - getEntityFeetY(b));
 
     const playerHitbox = getPlayerHitbox(playerPosition);
@@ -537,6 +604,23 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                 type={selectedSlot !== null ? 'build' : (showPunchIndicator ? 'punch' : 'none')}
                             />
                             <Player rotation={playerRotation} />
+                        </div>
+                    );
+                }
+                 if (entity.type === 'remote-player') {
+                    const remotePlayer = entity as RemotePlayer;
+                    return (
+                        <div
+                            key={remotePlayer.id}
+                            style={{
+                                position: 'absolute',
+                                left: remotePlayer.position.x,
+                                top: remotePlayer.position.y,
+                                // Add transition for smoother remote player movement
+                                transition: 'left 0.05s linear, top 0.05s linear',
+                            }}
+                        >
+                            <Player rotation={remotePlayer.rotation} />
                         </div>
                     );
                 }
