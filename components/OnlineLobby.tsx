@@ -10,11 +10,17 @@ interface OnlineLobbyProps {
 }
 
 // A list of public PeerJS signaling servers.
-// If one fails, the app will automatically try the next one.
+// If one fails, the app will automatically try the next one. We prioritize the official server.
 const PEER_SIGNALING_SERVERS = [
     {
-        host: 'peerjs.com',
-        path: '/peerjs', // Correct path for the default peerjs server
+        host: '0.peerjs.com', // The official PeerJS cloud server.
+        path: '/',
+        port: 443,
+        secure: true,
+    },
+    {
+        host: 'peerjs.com', // Legacy server, as a fallback.
+        path: '/', // Corrected path from '/peerjs' to avoid duplication in the connection URL.
         port: 443,
         secure: true,
     },
