@@ -111,18 +111,49 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     case 'players_update': {
                         if (data && data.players && Array.isArray(data.players)) {
                             const players: any[] = data.players;
-                            const newRemotePlayers: { [id: string]: RemotePlayer } = {};
-                            for (const p of players) {
-                                newRemotePlayers[p.id] = {
-                                    id: String(p.id),
-                                    type: 'remote-player',
-                                    position: { x: p.x, y: p.y },
-                                    rotation: p.rotation,
-                                    nickname: p.nickname,
-                                    health: p.health,
-                                };
-                            }
-                            setRemotePlayers(newRemotePlayers);
+                           
+                            setRemotePlayers(prev => {
+                                const newRemotePlayers = { ...prev };
+                                const receivedPlayerIds = new Set<string>();
+                                
+                                players.forEach(p => {
+                                    const id = String(p.id);
+                                    receivedPlayerIds.add(id);
+
+                                    if (newRemotePlayers[id]) {
+                                        // Existing player, update target for interpolation
+                                        newRemotePlayers[id] = {
+                                            ...newRemotePlayers[id],
+                                            targetPosition: { x: p.x, y: p.y },
+                                            targetRotation: p.rotation,
+                                            nickname: p.nickname,
+                                            health: p.health,
+                                        };
+                                    } else {
+                                        // New player, initialize
+                                        const pos = { x: p.x, y: p.y };
+                                        newRemotePlayers[id] = {
+                                            id: id,
+                                            type: 'remote-player',
+                                            position: pos,
+                                            targetPosition: pos,
+                                            rotation: p.rotation,
+                                            targetRotation: p.rotation,
+                                            nickname: p.nickname,
+                                            health: p.health,
+                                        };
+                                    }
+                                });
+
+                                // Remove players who have left
+                                Object.keys(newRemotePlayers).forEach(id => {
+                                    if (!receivedPlayerIds.has(id)) {
+                                        delete newRemotePlayers[id];
+                                    }
+                                });
+                                
+                                return newRemotePlayers;
+                            });
                         } else {
                             console.warn("Received 'players_update' with invalid payload:", data);
                         }
@@ -131,13 +162,17 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     case 'player_joined': {
                         if (data && data.player) {
                             const p = data.player;
+                            const id = String(p.id);
+                            const pos = { x: p.x, y: p.y };
                             setRemotePlayers(prev => ({
                                 ...prev,
-                                [p.id]: {
-                                    id: String(p.id),
+                                [id]: {
+                                    id: id,
                                     type: 'remote-player',
-                                    position: { x: p.x, y: p.y },
+                                    position: pos,
+                                    targetPosition: pos,
                                     rotation: p.rotation,
+                                    targetRotation: p.rotation,
                                     nickname: p.nickname,
                                     health: p.health,
                                 }
@@ -296,6 +331,35 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 }
 
                 setPlayerRotation(prevRotation => lerpAngle(prevRotation, targetRotation.current, rotationSpeed));
+                
+                // Remote players interpolation
+                setRemotePlayers(currentRemotePlayers => {
+                    const updatedPlayers: { [id:string]: RemotePlayer } = {};
+                    let hasChanged = false;
+                    for (const id in currentRemotePlayers) {
+                        const player = currentRemotePlayers[id];
+                        const newPos = {
+                            x: lerp(player.position.x, player.targetPosition.x, 0.2),
+                            y: lerp(player.position.y, player.targetPosition.y, 0.2),
+                        };
+                        const newRot = lerpAngle(player.rotation, player.targetRotation, 0.2);
+
+                        if (
+                            Math.abs(player.position.x - newPos.x) > 0.01 || 
+                            Math.abs(player.position.y - newPos.y) > 0.01 ||
+                            Math.abs(player.rotation - newRot) > 0.01
+                        ) {
+                            hasChanged = true;
+                        }
+
+                        updatedPlayers[id] = {
+                            ...player,
+                            position: newPos,
+                            rotation: newRot,
+                        };
+                    }
+                    return hasChanged ? updatedPlayers : currentRemotePlayers;
+                });
 
                 setPlayerPosition(currentPosition => {
                     const nextX = currentPosition.x + playerVelocity.current.x;
@@ -509,7 +573,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     return (
                         <div
                             key={entity.id}
-                            style={{ position: 'absolute', left: entity.position.x, top: entity.position.y, transition: 'left 0.05s linear, top 0.05s linear' }}
+                            style={{ position: 'absolute', left: entity.position.x, top: entity.position.y }}
                         >
                             <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-black/50 text-white text-xs px-2 py-1 rounded-md whitespace-nowrap">
                                 {entity.nickname}

@@ -21,7 +21,9 @@ export type RemotePlayer = {
   id: string;
   type: 'remote-player';
   position: Position;
+  targetPosition: Position; // For smooth interpolation
   rotation: number;
+  targetRotation: number; // For smooth interpolation
   nickname: string;
   health: number;
 };
