@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Joystick from './Joystick';
 import Player from './Player';
 import InteractionIndicator from './InteractionIndicator';
-import type { Position, WorldObject, InventoryItem, InventoryItemType, GameSettings, GameEntity, GameState, RemotePlayer } from '../types';
+import type { Position, WorldObject, InventoryItem, InventoryItemType, GameSettings, GameEntity, GameState, RemotePlayer, PeerJSDataConnection } from '../types';
 
 type GameMode = 'offline' | 'online';
 interface GameProps {
@@ -10,7 +10,8 @@ interface GameProps {
     setGameState: React.Dispatch<React.SetStateAction<GameState>>;
     settings: GameSettings;
     gameMode: GameMode;
-    socket: WebSocket | null;
+    dataConnection: PeerJSDataConnection | null;
+    peer: any | null; // This is the PeerJS instance
     onBackToMenu: () => void;
 }
 
@@ -23,10 +24,9 @@ const initialWorldObjects: WorldObject[] = [
     { id: 6, type: 'tree', position: { x: 100, y: 600 }, health: 5, emoji: '🌳', size: 6, hitbox: { width: 8, height: 10, offsetY: 50 } },
 ];
 
-const PLAYER_HITBOX_RADIUS = 10; // Уменьшили радиус
-const PLAYER_HITBOX_OFFSET_Y = -5; // Вернули смещение на торс
+const PLAYER_HITBOX_RADIUS = 10;
+const PLAYER_HITBOX_OFFSET_Y = -5;
 
-// --- Система столкновений (Круг-Прямоугольник) ---
 type AABB = { x: number; y: number; width: number; height: number };
 type Circle = { x: number; y: number; radius: number };
 
@@ -52,20 +52,13 @@ const getObjectHitbox = (obj: WorldObject): AABB | null => {
 };
 
 const checkCircleAABBCollision = (circle: Circle, rect: AABB): boolean => {
-    // Находим ближайшую точку на прямоугольнике к центру круга
     const closestX = Math.max(rect.x, Math.min(circle.x, rect.x + rect.width));
     const closestY = Math.max(rect.y, Math.min(circle.y, rect.y + rect.height));
-
-    // Вычисляем расстояние
     const distanceX = circle.x - closestX;
     const distanceY = circle.y - closestY;
     const distanceSquared = (distanceX * distanceX) + (distanceY * distanceY);
-
-    // Если квадрат расстояния меньше квадрата радиуса, есть столкновение
     return distanceSquared < (circle.radius * circle.radius);
 };
-// --- Конец системы ---
-
 
 const lerp = (start: number, end: number, amt: number) => {
     return (1 - amt) * start + amt * end;
@@ -81,7 +74,7 @@ const lerpAngle = (start: number, end: number, amt: number) => {
     return value % 360;
 }
 
-const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, socket, onBackToMenu }) => {
+const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, dataConnection, peer, onBackToMenu }) => {
     const [playerPosition, setPlayerPosition] = useState<Position>({ x: 100, y: 100 });
     const [playerRotation, setPlayerRotation] = useState(0);
     const [worldObjects, setWorldObjects] = useState<WorldObject[]>(initialWorldObjects);
@@ -91,7 +84,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const [fps, setFps] = useState(0);
     const [showPunchIndicator, setShowPunchIndicator] = useState(false);
 
-    // Online State
     const [myId, setMyId] = useState<string | null>(null);
     const [remotePlayers, setRemotePlayers] = useState<{ [id: string]: RemotePlayer }>({});
 
@@ -106,120 +98,121 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const lastTimeRef = useRef<number>(performance.now());
     const frameCountRef = useRef<number>(0);
     const handlePunchRef = useRef(handlePunch);
-
-
-    const handlePause = () => {
-        setGameState('paused');
-    };
-
-    const handleResume = () => {
-        setGameState('playing');
-    };
     
-    // --- Online Logic ---
+    const playerPositionRef = useRef(playerPosition);
+    const playerRotationRef = useRef(playerRotation);
     useEffect(() => {
-        if (gameMode !== 'online' || !socket) {
+        playerPositionRef.current = playerPosition;
+        playerRotationRef.current = playerRotation;
+    }, [playerPosition, playerRotation]);
+
+
+    const handlePause = () => setGameState('paused');
+    const handleResume = () => setGameState('playing');
+    
+    // --- P2P Online Logic ---
+    useEffect(() => {
+        if (gameMode !== 'online' || !dataConnection || !peer) {
             setMyId(null);
             setRemotePlayers({});
             return;
         }
 
-        const handleMessage = (event: MessageEvent) => {
-            try {
-                const data = JSON.parse(event.data);
+        setMyId(peer.id);
+        const peerId = dataConnection.peer;
 
+        const handleData = (data: any) => {
+            try {
                 switch (data.type) {
-                    case 'INIT': {
-                        setMyId(data.payload.id);
-                        const otherPlayers = { ...data.payload.players };
-                        delete otherPlayers[data.payload.id];
-                        const initialRemotePlayers: { [id: string]: RemotePlayer } = {};
-                        for (const pid in otherPlayers) {
-                            initialRemotePlayers[pid] = {
-                                id: pid,
+                    case 'PLAYER_STATE': {
+                        const { id, x, y, rotation } = data.payload;
+                        setRemotePlayers(prev => ({
+                            ...prev,
+                            [id]: {
+                                id,
                                 type: 'remote-player',
-                                position: { x: otherPlayers[pid].x, y: otherPlayers[pid].y },
-                                rotation: otherPlayers[pid].rotation || 0,
-                            };
-                        }
-                        setRemotePlayers(initialRemotePlayers);
-                        break;
-                    }
-                    case 'STATE_UPDATE': {
-                        const allPlayers = data.payload;
-                        const newRemotePlayers: { [id: string]: RemotePlayer } = {};
-                        for (const pid in allPlayers) {
-                            if (pid !== myId) {
-                                newRemotePlayers[pid] = {
-                                    id: pid,
-                                    type: 'remote-player',
-                                    position: { x: allPlayers[pid].x, y: allPlayers[pid].y },
-                                    rotation: allPlayers[pid].rotation || 0,
-                                };
+                                position: { x, y },
+                                rotation: rotation,
                             }
-                        }
-                        setRemotePlayers(newRemotePlayers);
+                        }));
                         break;
                     }
-                    case 'PLAYER_JOIN': {
-                        const newPlayer = data.payload;
-                        if (newPlayer.id !== myId) {
-                            setRemotePlayers(prev => ({
-                                ...prev,
-                                [newPlayer.id]: {
-                                    id: newPlayer.id,
-                                    type: 'remote-player',
-                                    position: { x: newPlayer.x, y: newPlayer.y },
-                                    rotation: newPlayer.rotation || 0,
-                                }
-                            }));
-                        }
-                        break;
-                    }
-                    case 'PLAYER_LEAVE': {
-                        const { id: leftPlayerId } = data.payload;
-                        setRemotePlayers(prev => {
-                            const newPlayers = { ...prev };
-                            delete newPlayers[leftPlayerId];
-                            return newPlayers;
-                        });
+                    case 'MOVE': {
+                        const { x, y, rotation } = data.payload;
+                         setRemotePlayers(prev => ({
+                            ...prev,
+                            [peerId]: {
+                                id: peerId,
+                                type: 'remote-player',
+                                position: { x, y },
+                                rotation: rotation,
+                            }
+                        }));
                         break;
                     }
                 }
             } catch (e) {
-                console.error("Failed to parse message from server", e);
+                console.error("Failed to process data from peer", e);
             }
         };
 
-        socket.addEventListener('message', handleMessage);
+        const handleOpen = () => {
+            console.log(`Connection to ${peerId} opened.`);
+            dataConnection.send({
+                type: 'PLAYER_STATE',
+                payload: {
+                    id: peer.id,
+                    x: playerPositionRef.current.x,
+                    y: playerPositionRef.current.y,
+                    rotation: playerRotationRef.current,
+                }
+            });
+        };
+        
+        const handleClose = () => {
+             console.log(`Connection to ${peerId} closed.`);
+             setRemotePlayers(prev => {
+                const newPlayers = { ...prev };
+                delete newPlayers[peerId];
+                return newPlayers;
+            });
+        };
+        
+        const handleError = (err: any) => console.error(`PeerJS connection error with ${peerId}:`, err);
+
+        dataConnection.on('data', handleData);
+        dataConnection.on('open', handleOpen);
+        dataConnection.on('close', handleClose);
+        dataConnection.on('error', handleError);
+        
+        if (dataConnection.open) handleOpen();
 
         return () => {
-            socket.removeEventListener('message', handleMessage);
+            dataConnection.off('data', handleData);
+            dataConnection.off('open', handleOpen);
+            dataConnection.off('close', handleClose);
+            dataConnection.off('error', handleError);
         };
-    }, [gameMode, socket, myId]);
+    }, [gameMode, dataConnection, peer]);
     
-    // Throttled update sender to server
+    // Throttled update sender to peer
     useEffect(() => {
-        if (gameMode !== 'online' || !socket || !myId) return;
+        if (gameMode !== 'online' || !dataConnection?.open) return;
 
         const interval = setInterval(() => {
-            if (socket.readyState === WebSocket.OPEN) {
-                const payload = {
-                    id: myId,
-                    x: playerPosition.x,
-                    y: playerPosition.y,
-                    rotation: playerRotation,
-                };
-                socket.send(JSON.stringify({ type: 'MOVE', payload }));
-            }
+            const payload = {
+                x: playerPosition.x,
+                y: playerPosition.y,
+                rotation: playerRotation,
+            };
+            dataConnection.send({ type: 'MOVE', payload });
         }, 50); // Send updates 20 times per second
 
         return () => clearInterval(interval);
 
-    }, [gameMode, socket, myId, playerPosition, playerRotation]);
+    }, [gameMode, dataConnection, playerPosition, playerRotation]);
 
 
-    // Update the ref to the latest handlePunch function on every render.
     useEffect(() => {
         handlePunchRef.current = handlePunch;
     });
@@ -231,11 +224,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 handlePunchRef.current();
                 return;
             }
-
             const key = e.key.toLowerCase();
             keysPressed.current[key] = true;
-
-            // Map Russian layout to WASD
             if (key === 'ц') keysPressed.current['w'] = true;
             if (key === 'ф') keysPressed.current['a'] = true;
             if (key === 'ы') keysPressed.current['s'] = true;
@@ -244,20 +234,14 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
         const handleKeyUp = (e: KeyboardEvent) => {
             const key = e.key.toLowerCase();
-            // This ensures that releasing any key, including Shift, updates its state to "not pressed".
             keysPressed.current[key] = false;
-
-            // Map Russian layout to WASD
             if (key === 'ц') keysPressed.current['w'] = false;
             if (key === 'ф') keysPressed.current['a'] = false;
             if (key === 'ы') keysPressed.current['s'] = false;
             if (key === 'в') keysPressed.current['d'] = false;
         };
         
-        // Reset keys on window blur to prevent "sticky keys"
-        const handleBlur = () => {
-            keysPressed.current = {};
-        };
+        const handleBlur = () => { keysPressed.current = {}; };
 
         window.addEventListener('keydown', handleKeyDown);
         window.addEventListener('keyup', handleKeyUp);
@@ -280,7 +264,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             }
 
             if (gameState === 'playing') {
-                // --- Input Gathering ---
                 let moveX = 0;
                 let moveY = 0;
                 let hasMovementInput = false;
@@ -290,14 +273,12 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 if (keysPressed.current['a']) { moveX -= 1; hasMovementInput = true; }
                 if (keysPressed.current['d']) { moveX += 1; hasMovementInput = true; }
                 
-                // Also consider joystick as movement input
                 if (joystickVector.current.x !== 0 || joystickVector.current.y !== 0) {
                     moveX += joystickVector.current.x;
                     moveY += joystickVector.current.y;
                     hasMovementInput = true;
                 }
                 
-                // --- Target Velocity Calculation ---
                 const rotationSpeed = 0.25;
                 let targetVelX = 0;
                 let targetVelY = 0;
@@ -321,16 +302,13 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     }
                 }
                 
-                // --- Smooth Velocity & Rotation Update ---
-                const moveResponsiveness = 0.25; // How quickly we accelerate
-                const stopResponsiveness = 0.4; // How quickly we decelerate. A higher value means a faster stop.
-
+                const moveResponsiveness = 0.25;
+                const stopResponsiveness = 0.4;
                 const responsiveness = hasMovementInput ? moveResponsiveness : stopResponsiveness;
                 
                 playerVelocity.current.x = lerp(playerVelocity.current.x, targetVelX, responsiveness);
                 playerVelocity.current.y = lerp(playerVelocity.current.y, targetVelY, responsiveness);
 
-                // Snap to zero if velocity is very low to prevent sliding, only when stopping.
                 if (!hasMovementInput) {
                     if (Math.abs(playerVelocity.current.x) < 0.05) playerVelocity.current.x = 0;
                     if (Math.abs(playerVelocity.current.y) < 0.05) playerVelocity.current.y = 0;
@@ -338,47 +316,40 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
                 setPlayerRotation(prevRotation => lerpAngle(prevRotation, targetRotation.current, rotationSpeed));
 
-                // --- Position Update & Collision Detection (using functional state update) ---
                 setPlayerPosition(currentPosition => {
                     const nextX = currentPosition.x + playerVelocity.current.x;
                     const nextY = currentPosition.y + playerVelocity.current.y;
                     let finalX = currentPosition.x;
                     let finalY = currentPosition.y;
 
-                    // X-axis collision check
                     const playerHitboxX = getPlayerHitbox({ x: nextX, y: currentPosition.y });
                     let canMoveX = true;
                     for (const obj of worldObjects) {
                         const objHitbox = getObjectHitbox(obj);
                         if (objHitbox && checkCircleAABBCollision(playerHitboxX, objHitbox)) {
                             canMoveX = false;
-                            playerVelocity.current.x = 0; // Stop velocity on collision
+                            playerVelocity.current.x = 0;
                             break;
                         }
                     }
-                    if (canMoveX) {
-                        finalX = nextX;
-                    }
+                    if (canMoveX) finalX = nextX;
 
-                    // Y-axis collision check
                     const playerHitboxY = getPlayerHitbox({ x: finalX, y: nextY });
                     let canMoveY = true;
                     for (const obj of worldObjects) {
                         const objHitbox = getObjectHitbox(obj);
                         if (objHitbox && checkCircleAABBCollision(playerHitboxY, objHitbox)) {
                             canMoveY = false;
-                            playerVelocity.current.y = 0; // Stop velocity on collision
+                            playerVelocity.current.y = 0;
                             break;
                         }
                     }
-                    if (canMoveY) {
-                        finalY = nextY;
-                    }
+                    if (canMoveY) finalY = nextY;
                     
                     if (finalX !== currentPosition.x || finalY !== currentPosition.y) {
                         return { x: finalX, y: finalY };
                     }
-                    return currentPosition; // Return same object if no change
+                    return currentPosition;
                 });
             }
 
@@ -388,16 +359,12 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         gameLoopRef.current = requestAnimationFrame(gameLoop);
         
         return () => {
-            if (gameLoopRef.current) {
-                cancelAnimationFrame(gameLoopRef.current);
-            }
+            if (gameLoopRef.current) cancelAnimationFrame(gameLoopRef.current);
         };
-    }, [gameState, worldObjects]); // Removed playerPosition from dependencies for a stable loop
+    }, [gameState, worldObjects]);
 
 
-    const handleJoystickMove = (x: number, y: number) => {
-        joystickVector.current = { x, y };
-    };
+    const handleJoystickMove = (x: number, y: number) => { joystickVector.current = { x, y }; };
 
     const addToInventory = (itemType: InventoryItemType) => {
         setInventory(prev => {
@@ -410,12 +377,9 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 return newInventory;
             }
     
-            let firstEmptySlot = -1;
-            for (let i = 0; i < 5; i++) {
-                if (!newInventory[i]) {
-                    firstEmptySlot = i;
-                    break;
-                }
+            let firstEmptySlot = newInventory.findIndex(item => !item);
+             if (firstEmptySlot === -1 && newInventory.length < 5) {
+                firstEmptySlot = newInventory.length;
             }
     
             if (firstEmptySlot !== -1) {
@@ -429,13 +393,11 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     
     function handlePunch() {
         if (gameState !== 'playing') return;
-
         setShowPunchIndicator(true);
         setTimeout(() => setShowPunchIndicator(false), 1000);
 
         const punchRange = 60;
         const punchAngle = 90;
-
         const playerAngleRad = (playerRotation - 90) * (Math.PI / 180);
         const forwardVec = { x: Math.cos(playerAngleRad), y: Math.sin(playerAngleRad) };
 
@@ -443,23 +405,15 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         let minDistance = Infinity;
 
         for (const obj of worldObjects) {
-            const toObjectVec = {
-                x: obj.position.x - playerPosition.x,
-                y: obj.position.y - playerPosition.y,
-            };
+            const toObjectVec = { x: obj.position.x - playerPosition.x, y: obj.position.y - playerPosition.y };
             const distance = Math.sqrt(toObjectVec.x ** 2 + toObjectVec.y ** 2);
-
             if (distance > punchRange || distance === 0) continue;
-
             const normalizedToObjectVec = { x: toObjectVec.x / distance, y: toObjectVec.y / distance };
             const dotProduct = forwardVec.x * normalizedToObjectVec.x + forwardVec.y * normalizedToObjectVec.y;
             const angleThreshold = Math.cos((punchAngle / 2) * (Math.PI / 180));
-
-            if (dotProduct > angleThreshold) {
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    closestObject = obj;
-                }
+            if (dotProduct > angleThreshold && distance < minDistance) {
+                minDistance = distance;
+                closestObject = obj;
             }
         }
 
@@ -514,7 +468,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 ? { width: 8, height: 10, offsetY: 50 }
                 : { width: 55, height: 30, offsetY: 15 },
         };
-
         setWorldObjects(prev => [...prev, newObject]);
 
         setInventory(prev => {
@@ -531,13 +484,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         });
     };
 
-    const getItemEmoji = (type: InventoryItemType) => {
-        switch(type) {
-            case 'wood': return '🪵';
-            case 'stone': return '🪨';
-            default: return '';
-        }
-    }
+    const getItemEmoji = (type: InventoryItemType) => type === 'wood' ? '🪵' : '🪨';
 
     const handleActionPress = (e: React.SyntheticEvent, action: () => void) => {
         e.stopPropagation();
@@ -545,82 +492,48 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         action();
     };
 
-    const actionButtonStyle: React.CSSProperties = {
-        width: `${settings.buttonSize}px`,
-        height: `${settings.buttonSize}px`,
-        fontSize: `${settings.buttonSize / 5}px`
-    };
-
-    const hotbarSlotStyle: React.CSSProperties = {
-        width: `${settings.inventorySize}px`,
-        height: `${settings.inventorySize}px`,
-        fontSize: `${settings.inventorySize * 0.6}px`,
-    }
-
-    const hotbarBagStyle: React.CSSProperties = {
-        ...hotbarSlotStyle,
-        fontSize: `${settings.inventorySize * 0.5}px`,
-    }
+    const actionButtonStyle: React.CSSProperties = { width: `${settings.buttonSize}px`, height: `${settings.buttonSize}px`, fontSize: `${settings.buttonSize / 5}px` };
+    const hotbarSlotStyle: React.CSSProperties = { width: `${settings.inventorySize}px`, height: `${settings.inventorySize}px`, fontSize: `${settings.inventorySize * 0.6}px` };
+    const hotbarBagStyle: React.CSSProperties = { ...hotbarSlotStyle, fontSize: `${settings.inventorySize * 0.5}px` };
     
     const getEntityFeetY = (entity: GameEntity) => {
-        if (entity.type === 'player' || entity.type === 'remote-player') {
-            return entity.position.y;
-        }
+        if (entity.type === 'player' || entity.type === 'remote-player') return entity.position.y;
         const obj = entity as WorldObject;
-        if (obj.hitbox) {
-            return obj.position.y + obj.hitbox.offsetY + obj.hitbox.height / 2;
-        }
-        return obj.position.y;
+        return obj.hitbox ? obj.position.y + obj.hitbox.offsetY + obj.hitbox.height / 2 : obj.position.y;
     };
+
+    // Fix: Explicitly type the player entity object as GameEntity to prevent TypeScript
+    // from inferring a broad, incompatible type when combining it with other entities
+    // in the array, thus resolving the assignment error for `renderableEntities`.
+    const playerAsEntity: GameEntity = { id: 'player', type: 'player', position: playerPosition, rotation: playerRotation };
 
     const renderableEntities: GameEntity[] = [
         ...worldObjects,
         ...Object.values(remotePlayers),
-        { id: 'player', type: 'player', position: playerPosition, rotation: playerRotation }
+        playerAsEntity
     ].sort((a, b) => getEntityFeetY(a) - getEntityFeetY(b));
 
     const playerHitbox = getPlayerHitbox(playerPosition);
-
     const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
-
     return (
-        <div 
-            className="relative w-full h-full bg-green-400 overflow-hidden select-none"
-        >
+        <div className="relative w-full h-full bg-green-400 overflow-hidden select-none">
             {renderableEntities.map(entity => {
                 if (entity.type === 'player') {
                      return (
-                        <div
-                            key="player"
-                            style={{
-                                position: 'absolute',
-                                left: entity.position.x,
-                                top: entity.position.y,
-                            }}
-                        >
-                            <InteractionIndicator
-                                rotation={playerRotation}
-                                type={selectedSlot !== null ? 'build' : (showPunchIndicator ? 'punch' : 'none')}
-                            />
+                        <div key="player" style={{ position: 'absolute', left: entity.position.x, top: entity.position.y }}>
+                            <InteractionIndicator rotation={playerRotation} type={selectedSlot !== null ? 'build' : (showPunchIndicator ? 'punch' : 'none')} />
                             <Player rotation={playerRotation} />
                         </div>
                     );
                 }
                  if (entity.type === 'remote-player') {
-                    const remotePlayer = entity as RemotePlayer;
                     return (
                         <div
-                            key={remotePlayer.id}
-                            style={{
-                                position: 'absolute',
-                                left: remotePlayer.position.x,
-                                top: remotePlayer.position.y,
-                                // Add transition for smoother remote player movement
-                                transition: 'left 0.05s linear, top 0.05s linear',
-                            }}
+                            key={entity.id}
+                            style={{ position: 'absolute', left: entity.position.x, top: entity.position.y, transition: 'left 0.05s linear, top 0.05s linear' }}
                         >
-                            <Player rotation={remotePlayer.rotation} />
+                            <Player rotation={entity.rotation} />
                         </div>
                     );
                 }
@@ -629,102 +542,50 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     <div
                         key={obj.id}
                         className={`absolute select-none transition-transform duration-200 ${hitEffects.includes(obj.id) ? 'animate-shake' : ''}`}
-                        style={{
-                            left: obj.position.x,
-                            top: obj.position.y,
-                            fontSize: `${obj.size}rem`,
-                            transform: 'translate(-50%, -50%)',
-                            lineHeight: 1,
-                        }}
+                        style={{ left: obj.position.x, top: obj.position.y, fontSize: `${obj.size}rem`, transform: 'translate(-50%, -50%)', lineHeight: 1 }}
                     >
                         {obj.emoji}
                     </div>
                 );
             })}
 
-            {/* Hitbox Visualization */}
             {settings.showHitboxes && (
                 <>
-                    {/* Player Hitbox */}
-                    <div style={{
-                        position: 'absolute',
-                        left: `${playerHitbox.x}px`,
-                        top: `${playerHitbox.y}px`,
-                        width: `${playerHitbox.radius * 2}px`,
-                        height: `${playerHitbox.radius * 2}px`,
-                        backgroundColor: 'rgba(255, 0, 0, 0.4)',
-                        border: '1px solid red',
-                        borderRadius: '50%',
-                        transform: `translate(-50%, -50%)`,
-                        zIndex: 999,
-                    }} />
-                    {/* World Object Hitboxes */}
-                    {worldObjects.map(obj => {
-                        if (!obj.hitbox) return null;
-                        return (
-                            <div key={`hitbox-${obj.id}`} style={{
-                                position: 'absolute',
-                                left: obj.position.x,
-                                top: obj.position.y + obj.hitbox.offsetY,
-                                width: `${obj.hitbox.width}px`,
-                                height: `${obj.hitbox.height}px`,
-                                backgroundColor: 'rgba(0, 0, 255, 0.4)',
-                                border: '1px solid blue',
-                                transform: 'translate(-50%, -50%)',
-                                zIndex: 998,
-                            }} />
-                        );
-                    })}
+                    <div style={{ position: 'absolute', left: `${playerHitbox.x}px`, top: `${playerHitbox.y}px`, width: `${playerHitbox.radius * 2}px`, height: `${playerHitbox.radius * 2}px`, backgroundColor: 'rgba(255, 0, 0, 0.4)', border: '1px solid red', borderRadius: '50%', transform: `translate(-50%, -50%)`, zIndex: 999 }} />
+                    {worldObjects.map(obj => obj.hitbox && (
+                        <div key={`hitbox-${obj.id}`} style={{ position: 'absolute', left: obj.position.x, top: obj.position.y + obj.hitbox.offsetY, width: `${obj.hitbox.width}px`, height: `${obj.hitbox.height}px`, backgroundColor: 'rgba(0, 0, 255, 0.4)', border: '1px solid blue', transform: 'translate(-50%, -50%)', zIndex: 998 }} />
+                    ))}
                 </>
             )}
 
-
-            {/* UI */}
-            <div 
-                className="absolute top-0 left-0 w-full h-full pointer-events-none"
-                onMouseDown={(e) => e.stopPropagation()} 
-                onTouchStart={(e) => e.stopPropagation()}
-            >
+            <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
                 <div className="absolute top-4 right-4 z-10 pointer-events-auto">
                     <button onClick={handlePause} className="w-12 h-12 bg-gray-500/50 text-white text-2xl rounded-md flex items-center justify-center active:bg-gray-600/50">||</button>
                 </div>
                 
-                {settings.showFps && (
-                    <div className="absolute top-4 left-4 bg-black/50 text-white p-2 rounded-md z-10 pointer-events-auto">
-                        FPS: {fps}
-                    </div>
-                )}
+                {settings.showFps && <div className="absolute top-4 left-4 bg-black/50 text-white p-2 rounded-md z-10 pointer-events-auto">FPS: {fps}</div>}
                 
                 <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-2 bg-black/20 p-2 rounded-lg z-10 pointer-events-auto">
-                    {Array.from({ length: 6 }).map((_, i) => {
-                        if (i < 5) {
-                            const item = inventory[i];
-                            const isSelected = selectedSlot === i;
-                            return (
-                                <div
-                                    key={i}
-                                    onClick={(e) => handleSlotClick(e, i)}
-                                    style={hotbarSlotStyle}
-                                    className={`relative bg-black/30 border-2 rounded-md flex items-center justify-center cursor-pointer transition-all ${isSelected ? 'border-yellow-400 scale-110' : 'border-gray-500'}`}
-                                >
-                                {item && (
-                                        <>
-                                            <span>{getItemEmoji(item.type)}</span>
-                                            <span className="absolute bottom-0 right-1 text-white text-lg font-bold" style={{ textShadow: '1px 1px 2px black', fontSize: `${settings.inventorySize * 0.25}px` }}>
-                                                {item.quantity}
-                                            </span>
-                                        </>
-                                    )}
-                                </div>
-                            );
-                        } else {
-                            return (
-                                <div key={i} style={hotbarBagStyle} className="bg-black/50 border-2 border-gray-500 rounded-md flex items-center justify-center">🎒</div>
-                            );
-                        }
-                    })}
+                    {Array.from({ length: 6 }).map((_, i) => (
+                        <div
+                            key={i}
+                            onClick={(e) => i < 5 ? handleSlotClick(e, i) : undefined}
+                            style={i < 5 ? hotbarSlotStyle : hotbarBagStyle}
+                            className={`relative bg-black/30 border-2 rounded-md flex items-center justify-center transition-all ${ i < 5 ? `cursor-pointer ${selectedSlot === i ? 'border-yellow-400 scale-110' : 'border-gray-500'}` : 'border-gray-500'}`}
+                        >
+                            {i < 5 ? (
+                                inventory[i] && (
+                                    <>
+                                        <span>{getItemEmoji(inventory[i]!.type)}</span>
+                                        <span className="absolute bottom-0 right-1 text-white text-lg font-bold" style={{ textShadow: '1px 1px 2px black', fontSize: `${settings.inventorySize * 0.25}px` }}>
+                                            {inventory[i]!.quantity}
+                                        </span>
+                                    </>
+                                )
+                            ) : '🎒'}
+                        </div>
+                    ))}
                 </div>
-
 
                 <div className="absolute bottom-4 right-4 flex flex-col gap-4 z-10 pointer-events-auto">
                     <button 
@@ -733,7 +594,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         style={actionButtonStyle}
                         className="bg-red-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-red-800 active:bg-red-600"
                     >
-                            Бить{!isTouchDevice && ' (Пробел)'}
+                        Бить{!isTouchDevice && ' (Пробел)'}
                     </button>
                     <button 
                         onMouseDown={(e) => handleActionPress(e, handlePlaceItem)}

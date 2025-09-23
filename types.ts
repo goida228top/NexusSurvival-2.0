@@ -41,7 +41,7 @@ export type GameSettings = {
   showHitboxes: boolean;
 };
 
-export type GameState = 'menu' | 'mode-select' | 'connecting' | 'playing' | 'paused' | 'settings';
+export type GameState = 'menu' | 'mode-select' | 'online-lobby' | 'playing' | 'paused' | 'settings';
 
 // Fix: Add PeerJSDataConnection type definition.
 // This represents the DataConnection object from the PeerJS library.
@@ -50,6 +50,7 @@ export type PeerJSDataConnection = {
   send: (data: any) => void;
   close: () => void;
   on: (event: 'data' | 'open' | 'close' | 'error', cb: (data?: any) => void) => void;
+  off: (event: 'data' | 'open' | 'close' | 'error', cb: (data?: any) => void) => void;
   open: boolean;
   peer: string;
   reliable: boolean;
