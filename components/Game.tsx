@@ -108,40 +108,55 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             try {
                 const data = JSON.parse(event.data);
                 switch (data.type) {
-                    case 'WORLD_STATE': {
-                        const players: { [id: string]: { x: number; y: number; rotation: number } } = data.payload.players;
-                        const newRemotePlayers: { [id: string]: RemotePlayer } = {};
-                        for (const id in players) {
-                            newRemotePlayers[id] = {
-                                id,
-                                type: 'remote-player',
-                                position: { x: players[id].x, y: players[id].y },
-                                rotation: players[id].rotation,
-                            };
-                        }
-                        setRemotePlayers(newRemotePlayers);
-                        break;
-                    }
-                    case 'PLAYER_UPDATE': {
-                        const { id, x, y, rotation } = data.payload;
-                        setRemotePlayers(prev => ({
-                            ...prev,
-                            [id]: {
-                                id,
-                                type: 'remote-player',
-                                position: { x, y },
-                                rotation,
+                    case 'players_update': {
+                        if (data && data.players && Array.isArray(data.players)) {
+                            const players: any[] = data.players;
+                            const newRemotePlayers: { [id: string]: RemotePlayer } = {};
+                            for (const p of players) {
+                                newRemotePlayers[p.id] = {
+                                    id: String(p.id),
+                                    type: 'remote-player',
+                                    position: { x: p.x, y: p.y },
+                                    rotation: p.rotation,
+                                    nickname: p.nickname,
+                                    health: p.health,
+                                };
                             }
-                        }));
+                            setRemotePlayers(newRemotePlayers);
+                        } else {
+                            console.warn("Received 'players_update' with invalid payload:", data);
+                        }
                         break;
                     }
-                    case 'PLAYER_DISCONNECTED': {
-                        const { id } = data.payload;
-                        setRemotePlayers(prev => {
-                            const newPlayers = { ...prev };
-                            delete newPlayers[id];
-                            return newPlayers;
-                        });
+                    case 'player_joined': {
+                        if (data && data.player) {
+                            const p = data.player;
+                            setRemotePlayers(prev => ({
+                                ...prev,
+                                [p.id]: {
+                                    id: String(p.id),
+                                    type: 'remote-player',
+                                    position: { x: p.x, y: p.y },
+                                    rotation: p.rotation,
+                                    nickname: p.nickname,
+                                    health: p.health,
+                                }
+                            }));
+                        } else {
+                            console.warn("Received 'player_joined' with invalid payload:", data);
+                        }
+                        break;
+                    }
+                    case 'player_left': {
+                        if (data && data.playerId) {
+                            setRemotePlayers(prev => {
+                                const newPlayers = { ...prev };
+                                delete newPlayers[String(data.playerId)];
+                                return newPlayers;
+                            });
+                        } else {
+                            console.warn("Received 'player_left' with invalid payload:", data);
+                        }
                         break;
                     }
                 }
@@ -167,6 +182,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 y: playerPosition.y,
                 rotation: playerRotation,
             };
+            // Note: Add nickname and other details if the server requires them for the 'MOVE' action
             socket.send(JSON.stringify({ type: 'MOVE', payload }));
         }, 50); // Send updates 20 times per second
 
@@ -495,6 +511,9 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                             key={entity.id}
                             style={{ position: 'absolute', left: entity.position.x, top: entity.position.y, transition: 'left 0.05s linear, top 0.05s linear' }}
                         >
+                            <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-black/50 text-white text-xs px-2 py-1 rounded-md whitespace-nowrap">
+                                {entity.nickname}
+                            </div>
                             <Player rotation={entity.rotation} />
                         </div>
                     );

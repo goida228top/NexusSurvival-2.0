@@ -22,6 +22,8 @@ export type RemotePlayer = {
   type: 'remote-player';
   position: Position;
   rotation: number;
+  nickname: string;
+  health: number;
 };
 
 export type GameEntity = WorldObject | Player | RemotePlayer;
