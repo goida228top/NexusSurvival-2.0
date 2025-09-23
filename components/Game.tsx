@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import Joystick from './Joystick';
 import Player from './Player';
@@ -109,58 +110,54 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 const data = JSON.parse(event.data);
                 switch (data.type) {
                     case 'players_update': {
-                        if (data && data.players && Array.isArray(data.players)) {
-                            const players: any[] = data.players;
-                           
-                            setRemotePlayers(prev => {
-                                const newRemotePlayers = { ...prev };
-                                const receivedPlayerIds = new Set<string>();
-                                
-                                players.forEach(p => {
-                                    const id = String(p.id);
-                                    receivedPlayerIds.add(id);
-
-                                    if (newRemotePlayers[id]) {
-                                        // Existing player, update target for interpolation
-                                        newRemotePlayers[id] = {
-                                            ...newRemotePlayers[id],
-                                            targetPosition: { x: p.x, y: p.y },
-                                            targetRotation: p.rotation,
-                                            nickname: p.nickname,
-                                            health: p.health,
-                                        };
-                                    } else {
-                                        // New player, initialize
-                                        const pos = { x: p.x, y: p.y };
-                                        newRemotePlayers[id] = {
-                                            id: id,
-                                            type: 'remote-player',
-                                            position: pos,
-                                            targetPosition: pos,
-                                            rotation: p.rotation,
-                                            targetRotation: p.rotation,
-                                            nickname: p.nickname,
-                                            health: p.health,
-                                        };
-                                    }
-                                });
-
-                                // Remove players who have left
-                                Object.keys(newRemotePlayers).forEach(id => {
-                                    if (!receivedPlayerIds.has(id)) {
-                                        delete newRemotePlayers[id];
-                                    }
-                                });
-                                
-                                return newRemotePlayers;
-                            });
-                        } else {
+                        if (!data?.players || !Array.isArray(data.players)) {
                             console.warn("Received 'players_update' with invalid payload:", data);
+                            break;
                         }
+
+                        const playersUpdate: any[] = data.players;
+
+                        setRemotePlayers(prev => {
+                            // Create a new state object from the server data
+                            const newPlayersState: { [id: string]: RemotePlayer } = {};
+                            
+                            for (const p of playersUpdate) {
+                                const id = String(p.id);
+                                const existingPlayer = prev[id];
+                                
+                                if (existingPlayer) {
+                                    // Player exists: update target, keep current position for interpolation
+                                    newPlayersState[id] = {
+                                        ...existingPlayer,
+                                        targetPosition: { x: p.x, y: p.y },
+                                        targetRotation: p.rotation,
+                                        nickname: p.nickname,
+                                        health: p.health,
+                                    };
+                                } else {
+                                    // New player: initialize with position set to target
+                                    const pos = { x: p.x, y: p.y };
+                                    newPlayersState[id] = {
+                                        id: id,
+                                        type: 'remote-player',
+                                        position: pos,
+                                        targetPosition: pos,
+                                        rotation: p.rotation,
+                                        targetRotation: p.rotation,
+                                        nickname: p.nickname,
+                                        health: p.health,
+                                    };
+                                }
+                            }
+                            
+                            // By building a new state from scratch, we implicitly handle players who have left,
+                            // as they won't be in `playersUpdate` and thus not in `newPlayersState`.
+                            return newPlayersState;
+                        });
                         break;
                     }
                     case 'player_joined': {
-                        if (data && data.player) {
+                        if (data?.player) {
                             const p = data.player;
                             const id = String(p.id);
                             const pos = { x: p.x, y: p.y };
@@ -183,7 +180,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         break;
                     }
                     case 'player_left': {
-                        if (data && data.playerId) {
+                        if (data?.playerId) {
                             setRemotePlayers(prev => {
                                 const newPlayers = { ...prev };
                                 delete newPlayers[String(data.playerId)];
@@ -196,7 +193,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     }
                 }
             } catch (e) {
-                console.error("Failed to process message from server", e);
+                console.error("Failed to process message from server", e, event.data);
             }
         };
 
