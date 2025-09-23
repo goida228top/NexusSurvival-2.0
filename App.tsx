@@ -1,9 +1,8 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Game from './components/Game';
 import Settings from './components/Settings';
-import OnlineLobby from './components/OnlineLobby';
-import type { GameSettings, GameState, PeerJSDataConnection } from './types';
+import type { GameSettings, GameState } from './types';
 
 const defaultSettings: GameSettings = {
     joystickSize: 160,
@@ -18,8 +17,8 @@ type GameMode = 'offline' | 'online';
 const App: React.FC = () => {
     const [gameState, setGameState] = useState<GameState>('menu');
     const [gameMode, setGameMode] = useState<GameMode>('offline');
-    const [peer, setPeer] = useState<any | null>(null);
-    const [dataConnection, setDataConnection] = useState<PeerJSDataConnection | null>(null);
+    const [socket, setSocket] = useState<WebSocket | null>(null);
+    const [connectionError, setConnectionError] = useState<string | null>(null);
 
     const [settings, setSettings] = useState<GameSettings>(() => {
         try {
@@ -43,17 +42,11 @@ const App: React.FC = () => {
     }, [settings]);
     
     const cleanupConnection = useCallback(() => {
-        if (dataConnection) {
-            dataConnection.close();
-            setDataConnection(null);
+        if (socket) {
+            socket.close(1000, "User initiated disconnect");
+            setSocket(null);
         }
-        if (peer) {
-            if (!peer.destroyed) {
-                peer.destroy();
-            }
-            setPeer(null);
-        }
-    }, [dataConnection, peer]);
+    }, [socket]);
 
     useEffect(() => {
         return () => {
@@ -76,15 +69,35 @@ const App: React.FC = () => {
     }, [cleanupConnection]);
 
     const handleOnlineClick = useCallback(() => {
-        cleanupConnection();
-        setGameMode('online');
-        setGameState('online-lobby');
-    }, [cleanupConnection]);
-
-    const handleConnect = useCallback((conn: PeerJSDataConnection, peerInstance: any) => {
-        setDataConnection(conn);
-        setPeer(peerInstance);
-        setGameState('playing');
+        setGameState('connecting');
+        setConnectionError(null);
+    
+        const newSocket = new WebSocket('wss://nexussurvival.duckdns.org/websocket');
+    
+        newSocket.onopen = () => {
+            console.log('WebSocket connection established.');
+            setSocket(newSocket);
+            setGameMode('online');
+            setGameState('playing');
+        };
+    
+        newSocket.onclose = (event) => {
+            console.log('WebSocket connection closed.', event.reason);
+            // Don't show an error if we closed it intentionally (code 1000)
+            if (event.code === 1000) return;
+            
+            setConnectionError('Соединение с сервером потеряно.');
+            setSocket(null);
+            // Only change state if we are not already on a menu screen
+            setGameState(prev => prev === 'playing' || prev === 'paused' || prev === 'connecting' ? 'mode-select' : prev);
+        };
+    
+        newSocket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            setConnectionError('Не удалось подключиться к серверу. Попробуйте снова позже.');
+            setSocket(null);
+            setGameState('mode-select');
+        };
     }, []);
     
     const handleBackToMenu = useCallback(() => {
@@ -136,6 +149,7 @@ const App: React.FC = () => {
             case 'mode-select':
                 return (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-black p-4">
+                        {connectionError && <p className="mb-4 text-center text-red-400 bg-red-900/50 p-3 rounded-md">{connectionError}</p>}
                         <h2 className="text-4xl font-bold mb-8">Выберите режим</h2>
                         <div className="flex gap-4">
                             <button
@@ -159,12 +173,17 @@ const App: React.FC = () => {
                         </button>
                     </div>
                 );
-            case 'online-lobby':
-                return (
-                    <OnlineLobby 
-                        onBack={handleBackToModeSelect}
-                        onConnect={handleConnect}
-                    />
+            case 'connecting':
+                 return (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-black">
+                        <p className="text-2xl animate-pulse">Подключение к серверу...</p>
+                        <button
+                            onClick={handleBackToModeSelect}
+                            className="mt-8 px-6 py-2 bg-red-600 text-white font-bold rounded-lg text-lg hover:bg-red-700 transition-colors"
+                        >
+                            Отмена
+                        </button>
+                    </div>
                 );
             case 'playing':
             case 'paused':
@@ -173,8 +192,7 @@ const App: React.FC = () => {
                             setGameState={setGameState} 
                             settings={settings} 
                             gameMode={gameMode}
-                            dataConnection={dataConnection}
-                            peer={peer}
+                            socket={socket}
                             onBackToMenu={handleBackToMenuFromGame}
                         />;
         }

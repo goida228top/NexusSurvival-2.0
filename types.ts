@@ -41,17 +41,13 @@ export type GameSettings = {
   showHitboxes: boolean;
 };
 
-export type GameState = 'menu' | 'mode-select' | 'online-lobby' | 'playing' | 'paused' | 'settings';
+export type GameState = 'menu' | 'mode-select' | 'connecting' | 'playing' | 'paused' | 'settings';
 
-// Fix: Add PeerJSDataConnection type definition.
-// This represents the DataConnection object from the PeerJS library.
-// Since PeerJS is loaded from a CDN, we define its type here for TypeScript to resolve the import error.
+// FIX: Added PeerJSDataConnection type to resolve import error in OnlineLobby.tsx
 export type PeerJSDataConnection = {
-  send: (data: any) => void;
-  close: () => void;
-  on: (event: 'data' | 'open' | 'close' | 'error', cb: (data?: any) => void) => void;
-  off: (event: 'data' | 'open' | 'close' | 'error', cb: (data?: any) => void) => void;
+  on(event: 'data' | 'open' | 'close' | 'error', cb: (data?: any) => void): void;
+  send(data: any): void;
+  close(): void;
   open: boolean;
   peer: string;
-  reliable: boolean;
 };
