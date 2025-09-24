@@ -156,6 +156,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         });
                         break;
                     }
+                    case 'PLAYER_JOINED':
                     case 'player_joined': {
                         if (data?.player) {
                             const p = data.player;
@@ -179,6 +180,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         }
                         break;
                     }
+                    case 'PLAYER_LEFT':
                     case 'player_left': {
                         if (data?.playerId) {
                             setRemotePlayers(prev => {
@@ -188,6 +190,30 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                             });
                         } else {
                             console.warn("Received 'player_left' with invalid payload:", data);
+                        }
+                        break;
+                    }
+                    case 'PLAYER_MOVED':
+                    case 'player_moved': {
+                        const { playerId, x, y, rotation } = data;
+                        if (playerId !== undefined && x !== undefined && y !== undefined && rotation !== undefined) {
+                             const id = String(playerId);
+                             setRemotePlayers(prev => {
+                                const player = prev[id];
+                                if (player) {
+                                    return {
+                                        ...prev,
+                                        [id]: {
+                                            ...player,
+                                            targetPosition: { x, y },
+                                            targetRotation: rotation,
+                                        }
+                                    };
+                                }
+                                return prev; // Player not found, 'player_joined' might be in flight
+                            });
+                        } else {
+                             console.warn("Received 'player_moved' with invalid payload:", data);
                         }
                         break;
                     }
