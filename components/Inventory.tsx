@@ -1,5 +1,6 @@
+
 import React from 'react';
-import type { InventoryItem, InventoryItemType, Recipe } from '../types';
+import type { InventoryItem, Recipe } from '../types';
 import PlayerModel from './PlayerModel';
 import ItemIcon from './ItemIcon';
 
@@ -49,7 +50,7 @@ const LockIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 const LockedSlot: React.FC<{ onClick?: () => void }> = ({ onClick }) => (
     <div 
-        className="w-16 h-16 bg-black/60 border border-gray-800 rounded-md flex items-center justify-center relative aspect-square cursor-pointer"
+        className="w-16 h-16 bg-black/60 border border-gray-800 rounded-md flex items-center justify-center relative aspect-square cursor-pointer flex-shrink-0"
         onClick={onClick}
         title="Заблокировано"
     >
@@ -76,103 +77,93 @@ const Inventory: React.FC<InventoryProps> = ({
     onCraftingSlotClick,
     onTakeOutput,
 }) => {
-    const unlockedItems = inventory.slice(0, 5);
     
     const handleLockedSlotClick = () => {
         alert('Чтобы открыть эти слоты, вам нужен рюкзак');
     };
 
     return (
-        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-20 p-2 sm:p-4" onClick={onClose}>
+        <div className="absolute inset-0 bg-black/70 z-20 flex items-center justify-center p-4 text-white" onClick={onClose}>
+            
             <div 
-                className="bg-[#2d2d2d] border-2 border-gray-700 rounded-lg p-4 sm:p-6 shadow-2xl max-w-5xl w-full text-white overflow-y-auto max-h-[95vh]" 
+                className="flex flex-col items-center gap-6 bg-black/50 p-6 rounded-xl border border-gray-700 max-w-fit shadow-lg"
                 onClick={e => e.stopPropagation()}
             >
-                {/* Header */}
-                <div className="flex justify-end items-center mb-4">
-                    <button onClick={onClose} className="text-gray-400 hover:text-white text-4xl leading-none">&times;</button>
-                </div>
-
-                {/* Main Content Area (responsive layout) */}
-                <div className="flex flex-col md:flex-row gap-8">
-                    {/* Left Column: Character & Inventory */}
-                    <div className="flex-1 md:max-w-xs">
-                        {/* Character */}
-                        <div className="flex justify-center items-start gap-2 sm:gap-4 p-2 bg-black/20 rounded-lg">
-                            <div className="flex flex-col gap-2">
-                                <EquipmentSlot icon="👑" type="Шлем" />
-                                <EquipmentSlot icon="👕" type="Нагрудник" />
-                                <EquipmentSlot icon="👖" type="Поножи" />
-                                <EquipmentSlot icon="👟" type="Ботинки" />
-                            </div>
-                            <PlayerModel />
-                            <div className="flex flex-col gap-2">
-                                <EquipmentSlot icon="💍" type="Кольцо" />
-                                <EquipmentSlot icon="🧿" type="Амулет" />
-                                <EquipmentSlot icon="🎒" type="Рюкзак" />
-                                <EquipmentSlot icon="🛡️" type="Щит" />
-                            </div>
+                {/* Top Section: Player and Crafting side-by-side */}
+                <div className="flex flex-row flex-wrap justify-center items-start gap-8">
+                
+                    {/* Left Side: Character & Equipment */}
+                    <div className="flex justify-center items-start gap-4">
+                        <div className="flex flex-col gap-2">
+                            <EquipmentSlot icon="👑" type="Шлем" />
+                            <EquipmentSlot icon="👕" type="Нагрудник" />
+                            <EquipmentSlot icon="👖" type="Поножи" />
+                            <EquipmentSlot icon="👟" type="Ботинки" />
                         </div>
-
-                        {/* Inventory */}
-                        <div className="mt-6">
-                            <div className="flex justify-center sm:justify-start gap-2 flex-wrap">
-                                {unlockedItems.map((item, i) => <Slot key={`inventory-${i}`} item={item} onClick={() => onInventorySlotClick(i)} />)}
-                                {Array.from({ length: 7 }).map((_, i) => (
-                                    <LockedSlot key={`locked-${i}`} onClick={handleLockedSlotClick} />
-                                ))}
-                            </div>
+                        <PlayerModel />
+                        <div className="flex flex-col gap-2">
+                            <EquipmentSlot icon="💍" type="Кольцо" />
+                            <EquipmentSlot icon="🧿" type="Амулет" />
+                            <EquipmentSlot icon="🎒" type="Рюкзак" />
+                            <EquipmentSlot icon="🛡️" type="Щит" />
                         </div>
                     </div>
-
-                    {/* Right Column: Crafting */}
-                    <div className="flex-1">
-                        <div className="p-2 bg-black/20 rounded-lg flex flex-col">
-                             <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap">
-                                 {craftingInput.map((item, i) => <Slot key={`craft-input-${i}`} item={item} onClick={() => onCraftingSlotClick(i)} />)}
-                                <div className="text-3xl sm:text-5xl mx-2 sm:mx-4 text-gray-500 font-bold">&rarr;</div>
-                                <Slot item={craftingOutput} onClick={onTakeOutput} className={!!craftingOutput ? 'border-green-500' : ''} />
-                            </div>
-
-                            <div className="w-full h-px bg-gray-600 my-4"></div>
-                            
-                            <div className="bg-black/30 rounded-md p-2 overflow-y-auto space-y-1">
-                                {filteredRecipes.length > 0 ? (
-                                    filteredRecipes.map((recipe) => (
-                                        <div key={recipe.id} className="flex items-center justify-between w-full bg-black/20 p-1 rounded-md text-sm">
-                                            {/* Ingredients */}
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                {recipe.ingredients.map((ing, index) => (
-                                                    <div key={index} className="flex items-center gap-1" title={`${ing.quantity} ${ing.type}`}>
-                                                        <div className="w-5 h-5 bg-black/40 rounded-sm flex items-center justify-center">
-                                                            <ItemIcon type={ing.type} className={ing.type === 'stone' ? 'text-sm' : 'w-3.5 h-3.5'} />
-                                                        </div>
-                                                        <span className="text-gray-300">x{ing.quantity}</span>
+                    
+                    {/* Right Side: Crafting & Recipes */}
+                    <div className="flex flex-col items-start gap-4">
+                        {/* Crafting Grid */}
+                        <div className="flex items-center justify-start gap-2">
+                           {craftingInput.map((item, i) => <Slot key={`craft-input-${i}`} item={item} onClick={() => onCraftingSlotClick(i)} />)}
+                            <div className="text-3xl sm:text-5xl mx-2 text-gray-500 font-bold">&rarr;</div>
+                            <Slot item={craftingOutput} onClick={onTakeOutput} className={!!craftingOutput ? 'border-green-500' : ''} />
+                        </div>
+                        {/* Recipes List */}
+                         <div className="bg-black/30 rounded-md p-2 space-y-1 h-[220px] overflow-y-auto w-full">
+                            {filteredRecipes.length > 0 ? (
+                                filteredRecipes.map((recipe) => (
+                                    <div key={recipe.id} className="flex items-center justify-between w-full bg-black/20 p-1 rounded-md text-sm min-w-[250px]">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            {recipe.ingredients.map((ing, index) => (
+                                                <div key={index} className="flex items-center gap-1" title={`${ing.quantity} ${ing.type}`}>
+                                                    <div className="w-5 h-5 bg-black/40 rounded-sm flex items-center justify-center">
+                                                        <ItemIcon type={ing.type} className={ing.type === 'stone' ? 'text-sm' : 'w-3.5 h-3.5'} />
                                                     </div>
-                                                ))}
-                                            </div>
-
-                                            <div className="text-lg mx-2 text-gray-500 font-bold">&rarr;</div>
-
-                                            {/* Output */}
-                                            <div className="flex items-center gap-1" title={`${recipe.output.quantity} ${recipe.output.type}`}>
-                                                <div className="w-6 h-6 bg-green-900/50 rounded-sm flex items-center justify-center border border-green-700">
-                                                    <ItemIcon type={recipe.output.type} className={recipe.output.type === 'stone' ? 'text-base' : 'w-4 h-4'} />
+                                                    <span className="text-gray-300">x{ing.quantity}</span>
                                                 </div>
-                                                <span className="font-semibold">x{recipe.output.quantity}</span>
-                                            </div>
+                                            ))}
                                         </div>
-                                    ))
-                                ) : (
-                                    <div className="flex items-center justify-center p-4">
-                                        <p className="text-gray-500">Нет доступных рецептов.</p>
+                                        <div className="text-lg mx-2 text-gray-500 font-bold">&rarr;</div>
+                                        <div className="flex items-center gap-1" title={`${recipe.output.quantity} ${recipe.output.type}`}>
+                                            <div className="w-6 h-6 bg-green-900/50 rounded-sm flex items-center justify-center border border-green-700">
+                                                <ItemIcon type={recipe.output.type} className={recipe.output.type === 'stone' ? 'text-base' : 'w-4 h-4'} />
+                                            </div>
+                                            <span className="font-semibold">x{recipe.output.quantity}</span>
+                                        </div>
                                     </div>
-                                )}
-                            </div>
-
+                                ))
+                            ) : (
+                                <div className="flex items-center justify-center p-4 h-full">
+                                    <p className="text-gray-500">Нет доступных рецептов.</p>
+                                </div>
+                            )}
                         </div>
                     </div>
+
                 </div>
+
+                {/* Bottom Section: Full Inventory */}
+                <div className="w-full border-t border-gray-600 pt-4">
+                    <div className="flex flex-wrap justify-center gap-2">
+                        {inventory.map((item, i) => {
+                            if (i < 5) { // Assuming first 5 are unlocked for now, as per original logic
+                                return <Slot key={`inventory-${i}`} item={item} onClick={() => onInventorySlotClick(i)} />;
+                            } else {
+                                return <LockedSlot key={`locked-${i}`} onClick={handleLockedSlotClick} />;
+                            }
+                        })}
+                    </div>
+                </div>
+
             </div>
         </div>
     );

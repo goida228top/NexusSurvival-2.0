@@ -171,7 +171,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const [remotePlayers, setRemotePlayers] = useState<{ [id: string]: RemotePlayer }>({});
 
     // Crafting State
-    const [craftingInput, setCraftingInput] = useState<(InventoryItem | undefined)[]>(Array(5).fill(undefined));
+    const [craftingInput, setCraftingInput] = useState<(InventoryItem | undefined)[]>(Array(4).fill(undefined));
     const [craftingOutput, setCraftingOutput] = useState<InventoryItem | undefined>(undefined);
     const [filteredRecipes, setFilteredRecipes] = useState<Recipe[]>(ALL_RECIPES);
 
@@ -196,7 +196,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const cameraPosition = useRef<Position>({ x: 0, y: 0 });
     const gameContainerRef = useRef<HTMLDivElement>(null);
     const gameWorldRef = useRef<HTMLDivElement>(null);
-    const healthIndicatorsRef = useRef(healthIndicators);
+    // FIX: Explicitly type the ref to avoid type inference issues with `useRef`'s initial value.
+    const healthIndicatorsRef = useRef<{ [id: number]: HealthIndicatorInfo }>(healthIndicators);
     healthIndicatorsRef.current = healthIndicators;
 
 
@@ -371,7 +372,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     currentInventory = addToInventory(item.type, item.quantity, currentInventory);
                 }
                 setInventory(currentInventory);
-                setCraftingInput(Array(5).fill(undefined));
+                setCraftingInput(Array(4).fill(undefined));
             }
         }
     }, [gameState]);
@@ -431,8 +432,12 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     // Effect for cleaning up health indicator timeouts on component unmount
     useEffect(() => {
         return () => {
-            Object.values(healthIndicatorsRef.current).forEach(indicator => {
-                clearTimeout(indicator.timeoutId);
+            // FIX: Use Object.keys to iterate, as Object.values was causing incorrect type inference.
+            Object.keys(healthIndicatorsRef.current).forEach(id => {
+                const indicator = healthIndicatorsRef.current[Number(id)];
+                if (indicator) {
+                    clearTimeout(indicator.timeoutId);
+                }
             });
             if (punchIndicatorTimeoutRef.current) {
                 clearTimeout(punchIndicatorTimeoutRef.current);
@@ -986,7 +991,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const handleTakeOutput = () => {
         if (!craftingOutput) return;
         setInventory(prev => addToInventory(craftingOutput.type, craftingOutput.quantity, prev));
-        setCraftingInput(Array(5).fill(undefined));
+        setCraftingInput(Array(4).fill(undefined));
         // Output will be cleared by the useEffect hook
     };
 
@@ -1067,7 +1072,9 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     );
                 })}
 
-                {Object.entries(healthIndicators).map(([id, indicator]) => {
+                {/* FIX: Use Object.keys to map over healthIndicators to ensure correct type inference. */}
+                {Object.keys(healthIndicators).map((id) => {
+                    const indicator = healthIndicators[Number(id) as keyof typeof healthIndicators];
                     const { position, size, current, max } = indicator;
                     const topOffset = (size * 16) / 2 + 10; // 1rem = 16px. Position above emoji center.
                     return (

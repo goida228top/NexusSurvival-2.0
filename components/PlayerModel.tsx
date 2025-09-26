@@ -3,7 +3,7 @@ import React from 'react';
 
 const PlayerModel: React.FC = () => {
     return (
-        <div className="relative w-40 h-56 flex items-center justify-center">
+        <div className="relative w-52 h-72 flex items-center justify-center">
             {/* The viewBox is adjusted to be more square, making the character appear larger within the container. */}
             <svg width="100%" height="100%" viewBox="-15 0 80 110" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <defs>
