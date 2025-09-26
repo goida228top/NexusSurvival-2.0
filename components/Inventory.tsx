@@ -22,10 +22,10 @@ const Slot: React.FC<{
     className?: string,
 }> = ({ item, onClick, className = '' }) => {
     // Размеры для мобильных устройств, увеличивающиеся на больших экранах
-    const sizeClasses = "w-14 h-14 md:w-16 md:h-16";
-    const emojiSize = "text-3xl md:text-4xl";
+    const sizeClasses = "w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16";
+    const emojiSize = "text-2xl sm:text-3xl md:text-4xl";
     const itemIconClass = item?.type === 'stone' || !item?.type ? emojiSize : 'w-full h-full p-1';
-    const quantitySize = "text-sm md:text-base";
+    const quantitySize = "text-xs sm:text-sm md:text-base";
 
     return (
         <div 
@@ -35,7 +35,7 @@ const Slot: React.FC<{
             {item && (
                  <>
                     <ItemIcon type={item.type} className={itemIconClass} />
-                    <span className={`absolute bottom-0.5 right-1 text-white font-bold ${quantitySize}`} style={{ textShadow: '1px 1px 2px black' }}>
+                    <span className={`absolute bottom-0.5 right-1.5 text-white font-bold ${quantitySize}`} style={{ textShadow: '1px 1px 2px black' }}>
                         {item.quantity > 1 ? item.quantity : ''}
                     </span>
                 </>
@@ -52,18 +52,18 @@ const LockIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 const LockedSlot: React.FC<{ onClick?: () => void }> = ({ onClick }) => (
     <div 
-        className="w-14 h-14 md:w-16 md:h-16 bg-black/60 border border-gray-800 rounded-md flex items-center justify-center relative aspect-square cursor-pointer flex-shrink-0"
+        className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-black/60 border border-gray-800 rounded-md flex items-center justify-center relative aspect-square cursor-pointer flex-shrink-0"
         onClick={onClick}
         title="Заблокировано"
     >
-        <LockIcon className="w-6 h-6 md:w-8 md:h-8 text-gray-700" />
+        <LockIcon className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 text-gray-700" />
     </div>
 );
 
 
 const EquipmentSlot: React.FC<{ icon: string, type: string }> = ({ icon, type }) => {
     return (
-         <div title={type} className="w-14 h-14 md:w-16 md:h-16 bg-black/40 border border-gray-600 rounded-md flex items-center justify-center relative aspect-square text-3xl md:text-4xl text-gray-500">
+         <div title={type} className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-black/40 border border-gray-600 rounded-md flex items-center justify-center relative aspect-square text-2xl sm:text-3xl md:text-4xl text-gray-500">
             {icon}
         </div>
     );
@@ -94,7 +94,7 @@ const Inventory: React.FC<InventoryProps> = ({
                 onClick={e => e.stopPropagation()}
             >
                 {/* Верхняя секция: Игрок и Крафт. Вертикальная на мобильных, горизонтальная на больших экранах */}
-                <div className="flex flex-col lg:flex-row p-2 sm:p-4 gap-4 lg:gap-8 items-center lg:items-start">
+                <div className="flex flex-col sm:flex-row p-2 sm:p-4 gap-4 items-center sm:items-start">
                 
                     {/* Левая сторона: Персонаж и Экипировка */}
                     <div className="flex justify-center items-start gap-2 md:gap-4 flex-shrink-0">
@@ -105,7 +105,7 @@ const Inventory: React.FC<InventoryProps> = ({
                             <EquipmentSlot icon="👟" type="Ботинки" />
                         </div>
                         {/* Адаптивная модель игрока */}
-                        <div className="w-32 h-48 sm:w-40 sm:h-60 lg:w-52 lg:h-72">
+                        <div className="w-24 h-36 sm:w-32 sm:h-48 lg:w-40 lg:h-60">
                            <PlayerModel />
                         </div>
                         <div className="flex flex-col gap-2">
@@ -117,8 +117,8 @@ const Inventory: React.FC<InventoryProps> = ({
                     </div>
                     
                     {/* Правая сторона: Крафт и Рецепты */}
-                    <div className="flex flex-col items-center md:items-start gap-2 md:gap-4 w-full lg:w-auto">
-                        <h3 className="text-lg font-bold text-gray-300 self-start md:self-center lg:self-start">Крафт</h3>
+                    <div className="flex flex-col items-center sm:items-start gap-2 md:gap-4 w-full sm:w-auto">
+                        <h3 className="text-lg font-bold text-gray-300 self-start">Крафт</h3>
                         {/* Сетка крафта */}
                         <div className="flex items-center justify-start gap-1 sm:gap-2">
                            {craftingInput.map((item, i) => <Slot key={`craft-input-${i}`} item={item} onClick={() => onCraftingSlotClick(i)} />)}
@@ -126,7 +126,7 @@ const Inventory: React.FC<InventoryProps> = ({
                             <Slot item={craftingOutput} onClick={onTakeOutput} className={!!craftingOutput ? 'border-green-500' : ''} />
                         </div>
                         {/* Список рецептов */}
-                         <div className="bg-black/30 rounded-md p-2 space-y-1 h-32 sm:h-40 lg:h-[220px] overflow-y-auto w-full max-w-sm lg:max-w-md">
+                         <div className="bg-black/30 rounded-md p-2 space-y-1 h-32 sm:h-40 lg:h-48 overflow-y-auto w-full max-w-sm lg:max-w-md">
                             {filteredRecipes.length > 0 ? (
                                 filteredRecipes.map((recipe) => (
                                     <div key={recipe.id} className="flex items-center justify-between w-full bg-black/20 p-1 rounded-md text-sm">
