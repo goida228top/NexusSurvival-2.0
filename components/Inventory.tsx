@@ -103,7 +103,7 @@ const Inventory: React.FC<InventoryProps> = ({
                 </button>
 
                 {/* Верхняя секция: Игрок и Крафт. Вертикальная на мобильных, горизонтальная на больших экранах */}
-                <div className="flex flex-col sm:flex-row p-2 pt-6 sm:p-3 gap-1 sm:gap-3 items-center sm:items-start">
+                <div className="flex flex-col sm:flex-row px-0 py-2 pt-6 sm:p-3 gap-1 sm:gap-3 items-center sm:items-start">
                 
                     {/* Левая сторона: Персонаж и Экипировка */}
                     <div className="flex justify-center items-start gap-1 md:gap-3 flex-shrink-0">
@@ -127,9 +127,8 @@ const Inventory: React.FC<InventoryProps> = ({
                     
                     {/* Правая сторона: Крафт и Рецепты */}
                     <div className="flex flex-col items-center sm:items-start gap-1.5 md:gap-3 w-full sm:w-auto">
-                        <h3 className="text-base font-bold text-gray-300 self-start">Крафт</h3>
                         {/* Сетка крафта */}
-                        <div className="flex items-center justify-start gap-1 sm:gap-1.5">
+                        <div className="flex items-center justify-center sm:justify-start gap-1 sm:gap-1.5 w-full">
                            {craftingInput.map((item, i) => <Slot key={`craft-input-${i}`} item={item} onClick={() => onCraftingSlotClick(i)} />)}
                             <div className="text-xl sm:text-2xl mx-1 sm:mx-1.5 text-gray-500 font-bold">&rarr;</div>
                             <Slot item={craftingOutput} onClick={onTakeOutput} className={!!craftingOutput ? 'border-green-500' : ''} />
@@ -169,7 +168,7 @@ const Inventory: React.FC<InventoryProps> = ({
                 </div>
 
                 {/* Нижняя секция: Полный инвентарь (прокручиваемый) */}
-                <div className="flex-grow p-2 sm:p-3 border-t border-gray-700 overflow-y-auto">
+                <div className="flex-grow px-0 py-2 sm:p-3 border-t border-gray-700 overflow-y-auto">
                     <div className="flex flex-wrap justify-center gap-1.5">
                         {inventory.map((item, i) => {
                             if (i < 5) {
