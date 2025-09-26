@@ -22,10 +22,10 @@ const Slot: React.FC<{
     className?: string,
 }> = ({ item, onClick, className = '' }) => {
     // Размеры для мобильных устройств, увеличивающиеся на больших экранах
-    const sizeClasses = "w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16";
-    const emojiSize = "text-2xl sm:text-3xl md:text-4xl";
+    const sizeClasses = "w-11 h-11 sm:w-12 sm:h-12 md:w-14 md:h-14";
+    const emojiSize = "text-xl sm:text-2xl md:text-3xl";
     const itemIconClass = item?.type === 'stone' || !item?.type ? emojiSize : 'w-full h-full p-1';
-    const quantitySize = "text-xs sm:text-sm md:text-base";
+    const quantitySize = "text-[10px] sm:text-xs md:text-sm";
 
     return (
         <div 
@@ -52,18 +52,18 @@ const LockIcon: React.FC<{ className?: string }> = ({ className }) => (
 
 const LockedSlot: React.FC<{ onClick?: () => void }> = ({ onClick }) => (
     <div 
-        className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-black/60 border border-gray-800 rounded-md flex items-center justify-center relative aspect-square cursor-pointer flex-shrink-0"
+        className="w-11 h-11 sm:w-12 sm:h-12 md:w-14 md:h-14 bg-black/60 border border-gray-800 rounded-md flex items-center justify-center relative aspect-square cursor-pointer flex-shrink-0"
         onClick={onClick}
         title="Заблокировано"
     >
-        <LockIcon className="w-5 h-5 sm:w-6 sm:h-6 md:w-8 md:h-8 text-gray-700" />
+        <LockIcon className="w-5 h-5 sm:w-5 sm:h-5 md:w-6 md:h-6 text-gray-700" />
     </div>
 );
 
 
 const EquipmentSlot: React.FC<{ icon: string, type: string }> = ({ icon, type }) => {
     return (
-         <div title={type} className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-black/40 border border-gray-600 rounded-md flex items-center justify-center relative aspect-square text-2xl sm:text-3xl md:text-4xl text-gray-500">
+         <div title={type} className="w-11 h-11 sm:w-12 sm:h-12 md:w-14 md:h-14 bg-black/40 border border-gray-600 rounded-md flex items-center justify-center relative aspect-square text-xl sm:text-2xl md:text-3xl text-gray-500">
             {icon}
         </div>
     );
@@ -86,7 +86,7 @@ const Inventory: React.FC<InventoryProps> = ({
 
     return (
         // Основной полноэкранный контейнер с отступами, центрируется на средних и больших экранах
-        <div className="absolute inset-0 bg-black/70 z-20 flex flex-col p-2 pt-8 sm:p-4 text-white md:items-center md:justify-center" onClick={onClose}>
+        <div className="absolute inset-0 bg-black/70 z-20 flex flex-col p-2 pt-4 sm:p-4 text-white md:items-center md:justify-center" onClick={onClose}>
             
             {/* Модальное окно: полная высота/ширина на мобильных, авто на десктопе */}
             <div 
@@ -94,7 +94,7 @@ const Inventory: React.FC<InventoryProps> = ({
                 onClick={e => e.stopPropagation()}
             >
                 {/* Верхняя секция: Игрок и Крафт. Вертикальная на мобильных, горизонтальная на больших экранах */}
-                <div className="flex flex-col sm:flex-row p-2 sm:p-4 gap-4 items-center sm:items-start">
+                <div className="flex flex-col sm:flex-row p-2 sm:p-4 gap-2 sm:gap-4 items-center sm:items-start">
                 
                     {/* Левая сторона: Персонаж и Экипировка */}
                     <div className="flex justify-center items-start gap-2 md:gap-4 flex-shrink-0">
@@ -105,7 +105,7 @@ const Inventory: React.FC<InventoryProps> = ({
                             <EquipmentSlot icon="👟" type="Ботинки" />
                         </div>
                         {/* Адаптивная модель игрока */}
-                        <div className="w-24 h-36 sm:w-32 sm:h-48 lg:w-40 lg:h-60">
+                        <div className="w-20 h-32 sm:w-24 sm:h-36 lg:w-32 lg:h-48">
                            <PlayerModel />
                         </div>
                         <div className="flex flex-col gap-2">
@@ -126,7 +126,7 @@ const Inventory: React.FC<InventoryProps> = ({
                             <Slot item={craftingOutput} onClick={onTakeOutput} className={!!craftingOutput ? 'border-green-500' : ''} />
                         </div>
                         {/* Список рецептов */}
-                         <div className="bg-black/30 rounded-md p-2 space-y-1 h-32 sm:h-40 lg:h-48 overflow-y-auto w-full max-w-sm lg:max-w-md">
+                         <div className="bg-black/30 rounded-md p-2 space-y-1 h-28 sm:h-36 lg:h-48 overflow-y-auto w-full max-w-sm lg:max-w-md">
                             {filteredRecipes.length > 0 ? (
                                 filteredRecipes.map((recipe) => (
                                     <div key={recipe.id} className="flex items-center justify-between w-full bg-black/20 p-1 rounded-md text-sm">
