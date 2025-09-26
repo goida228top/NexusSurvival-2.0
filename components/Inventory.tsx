@@ -1,6 +1,6 @@
 
 import React from 'react';
-import type { InventoryItem, Recipe, GameSettings } from '../types';
+import type { InventoryItem, Recipe, GameSettings, UILayout } from '../types';
 import PlayerModel from './PlayerModel';
 import ItemIcon from './ItemIcon';
 
@@ -68,8 +68,8 @@ const EquipmentSlot: React.FC<{ icon: string, type: string }> = ({ icon, type })
 
 // --- Reusable Panel Components ---
 
-const PlayerPanel: React.FC = () => (
-    <div className="flex justify-center items-start gap-3 p-3 bg-black/50 border border-gray-700 rounded-xl pointer-events-auto">
+const PlayerPanel: React.FC<{ layout: UILayout }> = ({ layout }) => (
+    <div className="flex justify-center items-start gap-3 p-3 border border-gray-700 rounded-xl pointer-events-auto" style={{ backgroundColor: layout.backgroundColor }}>
         <div className="flex flex-col gap-1.5">
             <EquipmentSlot icon="👑" type="Шлем" />
             <EquipmentSlot icon="👕" type="Нагрудник" />
@@ -88,9 +88,9 @@ const PlayerPanel: React.FC = () => (
     </div>
 );
 
-const CraftingPanel: React.FC<Pick<InventoryProps, 'craftingInput' | 'craftingOutput' | 'filteredRecipes' | 'onCraftingSlotClick' | 'onTakeOutput'>> = 
-({ craftingInput, craftingOutput, filteredRecipes, onCraftingSlotClick, onTakeOutput }) => (
-    <div className="flex flex-col items-start gap-3 p-3 bg-black/50 border border-gray-700 rounded-xl pointer-events-auto w-[350px]">
+const CraftingPanel: React.FC<Pick<InventoryProps, 'craftingInput' | 'craftingOutput' | 'filteredRecipes' | 'onCraftingSlotClick' | 'onTakeOutput'> & { layout: UILayout }> = 
+({ craftingInput, craftingOutput, filteredRecipes, onCraftingSlotClick, onTakeOutput, layout }) => (
+    <div className="flex flex-col items-start gap-3 p-3 border border-gray-700 rounded-xl pointer-events-auto w-[350px]" style={{ backgroundColor: layout.backgroundColor }}>
         <div className="flex items-center justify-start gap-1.5">
            {craftingInput.map((item, i) => <Slot key={`craft-input-${i}`} item={item} onClick={() => onCraftingSlotClick(i)} />)}
             <div className="text-2xl mx-1.5 text-gray-500 font-bold">&rarr;</div>
@@ -128,13 +128,22 @@ const CraftingPanel: React.FC<Pick<InventoryProps, 'craftingInput' | 'craftingOu
     </div>
 );
 
-const GridPanel: React.FC<Pick<InventoryProps, 'inventory' | 'onInventorySlotClick'>> = ({ inventory, onInventorySlotClick }) => {
+const GridPanel: React.FC<Pick<InventoryProps, 'inventory' | 'onInventorySlotClick'> & { layout: UILayout }> = ({ inventory, onInventorySlotClick, layout }) => {
     const handleLockedSlotClick = () => {
         alert('Чтобы открыть эти слоты, вам нужен рюкзак');
     };
+    
+    const layoutClasses = {
+        grid: 'flex-wrap w-[300px]',
+        row: 'flex-nowrap',
+        column: 'flex-col flex-nowrap h-[300px]'
+    };
+    
+    const gridStyle = layout.gridStyle || 'grid';
+
     return (
-        <div className="p-3 bg-black/50 border border-gray-700 rounded-xl pointer-events-auto">
-            <div className="flex flex-wrap justify-center gap-1.5 w-[300px]">
+        <div className="p-3 border border-gray-700 rounded-xl pointer-events-auto" style={{ backgroundColor: layout.backgroundColor }}>
+            <div className={`flex justify-center gap-1.5 ${layoutClasses[gridStyle]}`}>
                 {inventory.map((item, i) => {
                     if (i < 5) {
                         return <Slot key={`inventory-${i}`} item={item} onClick={() => onInventorySlotClick(i)} />;
@@ -153,7 +162,8 @@ const Inventory: React.FC<InventoryProps> = (props) => {
     const globalScale = settings.inventorySize / 64; // Base size is 64
 
     const getPanelStyle = (panel: keyof typeof settings.layouts): React.CSSProperties => {
-        const layout = settings.layouts[panel];
+        const layout = settings.layouts[panel as keyof typeof settings.layouts];
+        if (!layout) return {};
         return {
             position: 'absolute',
             left: `${layout.x}%`,
@@ -172,15 +182,15 @@ const Inventory: React.FC<InventoryProps> = (props) => {
             <div className="relative w-full h-full pointer-events-none" onClick={e => e.stopPropagation()}>
                 
                 <div style={getPanelStyle('player')}>
-                    <PlayerPanel />
+                    <PlayerPanel layout={settings.layouts.player} />
                 </div>
 
                 <div style={getPanelStyle('crafting')}>
-                    <CraftingPanel {...props} />
+                    <CraftingPanel {...props} layout={settings.layouts.crafting}/>
                 </div>
                 
                 <div style={getPanelStyle('grid')}>
-                    <GridPanel {...props} />
+                    <GridPanel {...props} layout={settings.layouts.grid} />
                 </div>
 
                 {/* Close button for mobile, always visible */}

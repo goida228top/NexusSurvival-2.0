@@ -49,6 +49,9 @@ export type UILayout = {
   x: number; // percentage
   y: number; // percentage
   scale: number;
+  backgroundColor?: string;
+  shape?: 'square' | 'circle';
+  gridStyle?: 'grid' | 'row' | 'column';
 };
 
 export type GameSettings = {
@@ -59,9 +62,15 @@ export type GameSettings = {
   showHitboxes: boolean;
   showPunchHitbox: boolean;
   layouts: {
+    // Inventory panels
     player: UILayout;
     crafting: UILayout;
     grid: UILayout;
+    // HUD elements
+    joystick: UILayout;
+    punchButton: UILayout;
+    buildButton: UILayout;
+    hotbar: UILayout;
   };
   inventoryBackgroundColor: string;
 };

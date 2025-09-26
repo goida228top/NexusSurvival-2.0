@@ -12,12 +12,34 @@ const defaultSettings: GameSettings = {
     showHitboxes: false,
     showPunchHitbox: false,
     layouts: {
-        player: { x: 50, y: 22, scale: 1 },
-        crafting: { x: 50, y: 53, scale: 1 },
-        grid: { x: 50, y: 82, scale: 1 },
+        // Inventory
+        player: { x: 50, y: 22, scale: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' },
+        crafting: { x: 50, y: 53, scale: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' },
+        grid: { x: 50, y: 82, scale: 1, gridStyle: 'grid', backgroundColor: 'rgba(0, 0, 0, 0.5)' },
+        // HUD
+        joystick: { x: 12, y: 85, scale: 1 },
+        punchButton: { x: 92, y: 88, scale: 1, shape: 'square' },
+        buildButton: { x: 92, y: 75, scale: 1, shape: 'square' },
+        hotbar: { x: 50, y: 95, scale: 1, gridStyle: 'row', backgroundColor: 'rgba(0, 0, 0, 0.2)' },
     },
     inventoryBackgroundColor: 'rgba(0, 0, 0, 0.7)',
 };
+
+// A deep merge function to safely combine saved settings with defaults
+const deepMerge = (target: any, source: any) => {
+    const output = { ...target };
+    if (target && typeof target === 'object' && source && typeof source === 'object') {
+        Object.keys(source).forEach(key => {
+            if (source[key] && typeof source[key] === 'object' && key in target) {
+                output[key] = deepMerge(target[key], source[key]);
+            } else {
+                output[key] = source[key];
+            }
+        });
+    }
+    return output;
+};
+
 
 type GameMode = 'offline' | 'online';
 
@@ -32,16 +54,8 @@ const App: React.FC = () => {
             const savedSettings = localStorage.getItem('gameSettings');
             if (savedSettings) {
                 const parsed = JSON.parse(savedSettings);
-                // Deep merge with defaults to ensure all properties are present
-                const mergedSettings = {
-                     ...defaultSettings, 
-                     ...parsed,
-                     layouts: {
-                         ...defaultSettings.layouts,
-                         ...(parsed.layouts || {}),
-                     }
-                };
-                return mergedSettings;
+                // Deep merge with defaults to ensure new settings (like HUD layouts) are added
+                return deepMerge(defaultSettings, parsed);
             }
         } catch (error) {
             console.error("Failed to load settings from localStorage", error);
@@ -163,7 +177,7 @@ const App: React.FC = () => {
                         onBack={() => setGameState(gameState === 'customize-ui' ? 'settings' : 'menu')}
                         setGameState={setGameState}
                         customizeMode={gameState === 'customize-ui'}
-                        defaultLayouts={defaultSettings.layouts}
+                        defaultSettings={defaultSettings}
                     />
                 );
             case 'mode-select':

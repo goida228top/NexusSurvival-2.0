@@ -995,6 +995,29 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         // Output will be cleared by the useEffect hook
     };
 
+    const getLayoutStyles = (layout: typeof settings.layouts.joystick): React.CSSProperties => ({
+        position: 'absolute',
+        left: `${layout.x}%`,
+        top: `${layout.y}%`,
+        transform: `translate(-50%, -50%) scale(${layout.scale})`,
+        willChange: 'transform',
+    });
+    
+    // --- HUD Styles ---
+    const hotbarLayout = settings.layouts.hotbar;
+    const hotbarStyle = getLayoutStyles(hotbarLayout);
+    const hotbarFlexDirection = hotbarLayout.gridStyle === 'column' ? 'flex-col' : 'flex-row';
+
+    const punchButtonLayout = settings.layouts.punchButton;
+    const punchButtonStyle = getLayoutStyles(punchButtonLayout);
+    const punchButtonShapeClass = punchButtonLayout.shape === 'circle' ? 'rounded-full' : 'rounded-lg';
+    
+    const buildButtonLayout = settings.layouts.buildButton;
+    const buildButtonStyle = getLayoutStyles(buildButtonLayout);
+    const buildButtonShapeClass = buildButtonLayout.shape === 'circle' ? 'rounded-full' : 'rounded-lg';
+
+    const joystickLayout = settings.layouts.joystick;
+    const joystickStyle = getLayoutStyles(joystickLayout);
 
     const actionButtonStyle: React.CSSProperties = { width: `${settings.buttonSize}px`, height: `${settings.buttonSize}px`, fontSize: `${settings.buttonSize / 5}px` };
     const hotbarSlotStyle: React.CSSProperties = { width: `${settings.inventorySize}px`, height: `${settings.inventorySize}px`, fontSize: `${settings.inventorySize * 0.6}px` };
@@ -1111,7 +1134,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 
                 {settings.showFps && <div className="absolute top-4 left-4 bg-black/50 text-white p-2 rounded-md z-10 pointer-events-auto">FPS: {fps}</div>}
                 
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-2 bg-black/20 p-2 rounded-lg z-10 pointer-events-auto">
+                <div 
+                    style={{ ...hotbarStyle, backgroundColor: hotbarLayout.backgroundColor }}
+                    className={`flex items-end gap-2 p-2 rounded-lg z-10 pointer-events-auto ${hotbarFlexDirection}`}
+                >
                     {hotbarItems.map((item, i) => (
                         <div
                             key={i}
@@ -1143,7 +1169,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 </div>
 
 
-                <div className="absolute bottom-4 right-4 flex flex-col gap-4 z-10 pointer-events-auto">
+                <div style={punchButtonStyle} className="z-10 pointer-events-auto">
                     <button 
                         onMouseDown={(e) => handleActionPress(e, handlePunchStart)}
                         onTouchStart={(e) => handleActionPress(e, handlePunchStart)}
@@ -1152,22 +1178,24 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         onMouseLeave={(e) => { if(isCharging) handleActionPress(e, handlePunchEnd)} }
                         onTouchCancel={(e) => { if(isCharging) handleActionPress(e, handlePunchEnd)} }
                         style={actionButtonStyle}
-                        className="bg-red-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-red-800 active:bg-red-600 touch-none"
+                        className={`bg-red-500/80 flex items-center justify-center text-white font-bold border-2 border-red-800 active:bg-red-600 touch-none ${punchButtonShapeClass}`}
                     >
                         Бить{!isTouchDevice && ' (Пробел)'}
                     </button>
+                </div>
+                <div style={buildButtonStyle} className="z-10 pointer-events-auto">
                     <button 
                         onMouseDown={(e) => handleActionPress(e, handlePlaceItem)}
                         onTouchStart={(e) => handleActionPress(e, handlePlaceItem)}
                         disabled={!canBuild}
                         style={actionButtonStyle}
-                        className="bg-yellow-500/80 rounded-lg flex items-center justify-center text-white font-bold border-2 border-yellow-800 active:bg-yellow-600 disabled:bg-gray-600/80 disabled:border-gray-800 disabled:cursor-not-allowed"
+                        className={`bg-yellow-500/80 flex items-center justify-center text-white font-bold border-2 border-yellow-800 active:bg-yellow-600 disabled:bg-gray-600/80 disabled:border-gray-800 disabled:cursor-not-allowed ${buildButtonShapeClass}`}
                     >
                         Строить
                     </button>
                 </div>
 
-                <div className="absolute bottom-4 left-4 z-10 pointer-events-auto">
+                <div style={joystickStyle} className="z-10 pointer-events-auto">
                     <Joystick onMove={handleJoystickMove} size={settings.joystickSize} />
                 </div>
             </div>
