@@ -154,6 +154,7 @@ const lerpAngle = (start: number, end: number, amt: number) => {
 
 const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, socket, onBackToMenu }) => {
     const { useState, useEffect, useRef } = React;
+    const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
     const [playerPosition, setPlayerPosition] = useState<Position>({ x: 100, y: 100 });
     const [playerRotation, setPlayerRotation] = useState(0);
     const [worldObjects, setWorldObjects] = useState<WorldObject[]>(initialWorldObjects);
@@ -549,7 +550,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 setPlayerPosition(currentPosition => {
                     // Camera logic is placed here to get the most up-to-date player position.
                     if (gameContainerRef.current && gameWorldRef.current) {
-                        const zoom = 1.5;
+                        const zoom = isTouchDevice ? 1.1 : 1.5;
                         const viewportWidth = gameContainerRef.current.clientWidth;
                         const viewportHeight = gameContainerRef.current.clientHeight;
     
@@ -626,7 +627,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         return () => {
             if (gameLoopRef.current) cancelAnimationFrame(gameLoopRef.current);
         };
-    }, [gameState, worldObjects]);
+    }, [gameState, worldObjects, isTouchDevice]);
 
 
     const handleJoystickMove = (x: number, y: number) => { joystickVector.current = { x, y }; };
@@ -1030,7 +1031,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     ].sort((a, b) => getEntityFeetY(a) - getEntityFeetY(b));
 
     const playerHitbox = getPlayerHitbox(playerPosition);
-    const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
     
     const hotbarItems = inventory.slice(0, 5);
 
