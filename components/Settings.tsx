@@ -23,8 +23,8 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack }) =>
                 <h2 className="text-4xl font-bold">Настройки</h2>
             </header>
             
-            <main className="flex-grow overflow-y-auto px-4 flex justify-center">
-                <div className="w-full max-w-md space-y-6">
+            <main className="flex-grow overflow-y-auto px-6">
+                <div className="w-full space-y-6">
                     <div className="flex flex-col">
                         <label htmlFor="joystickSize" className="text-lg mb-2">Размер джойстика: {settings.joystickSize}px</label>
                         <input 
@@ -67,7 +67,7 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack }) =>
                         />
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between py-2">
                         <label htmlFor="showFps" className="text-lg">Показывать FPS</label>
                         <button
                             id="showFps"
@@ -82,7 +82,7 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack }) =>
                         </button>
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between py-2">
                         <label htmlFor="showHitboxes" className="text-lg">Показывать хитбоксы</label>
                         <button
                             id="showHitboxes"
@@ -97,7 +97,7 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack }) =>
                         </button>
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between py-2">
                         <label htmlFor="showPunchHitbox" className="text-lg">Показывать хитбокс удара</label>
                         <button
                             id="showPunchHitbox"
