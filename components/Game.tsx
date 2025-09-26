@@ -22,12 +22,12 @@ const ROCK_HITBOX = { width: 55, height: 30, offsetY: 15 };
 const WORKBENCH_HITBOX = { width: 45, height: 25, offsetY: 10 };
 
 const initialWorldObjects: WorldObject[] = [
-    { id: 1, type: 'tree', position: { x: 300, y: 150 }, health: 50, maxHealth: 50, emoji: '🌳', size: 6, hitbox: TREE_HITBOX },
-    { id: 2, type: 'rock', position: { x: 450, y: 300 }, health: 20, maxHealth: 20, emoji: '🪨', size: 4, hitbox: ROCK_HITBOX },
-    { id: 3, type: 'tree', position: { x: 600, y: 100 }, health: 50, maxHealth: 50, emoji: '🌳', size: 6, hitbox: TREE_HITBOX },
-    { id: 4, type: 'tree', position: { x: 200, y: 400 }, health: 50, maxHealth: 50, emoji: '🌳', size: 6, hitbox: TREE_HITBOX },
-    { id: 5, type: 'rock', position: { x: 700, y: 500 }, health: 20, maxHealth: 20, emoji: '🪨', size: 4, hitbox: ROCK_HITBOX },
-    { id: 6, type: 'tree', position: { x: 100, y: 600 }, health: 50, maxHealth: 50, emoji: '🌳', size: 6, hitbox: TREE_HITBOX },
+    { id: 1, type: 'tree', position: { x: 300, y: 150 }, health: 70, maxHealth: 70, emoji: '🌳', size: 6, hitbox: TREE_HITBOX },
+    { id: 2, type: 'rock', position: { x: 450, y: 300 }, health: 150, maxHealth: 150, emoji: '🪨', size: 4, hitbox: ROCK_HITBOX },
+    { id: 3, type: 'tree', position: { x: 600, y: 100 }, health: 70, maxHealth: 70, emoji: '🌳', size: 6, hitbox: TREE_HITBOX },
+    { id: 4, type: 'tree', position: { x: 200, y: 400 }, health: 70, maxHealth: 70, emoji: '🌳', size: 6, hitbox: TREE_HITBOX },
+    { id: 5, type: 'rock', position: { x: 700, y: 500 }, health: 150, maxHealth: 150, emoji: '🪨', size: 4, hitbox: ROCK_HITBOX },
+    { id: 6, type: 'tree', position: { x: 100, y: 600 }, health: 70, maxHealth: 70, emoji: '🌳', size: 6, hitbox: TREE_HITBOX },
 ];
 
 const PLAYER_HITBOX_RADIUS = 10;
@@ -652,13 +652,28 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     };
     
     const executePunch = (damage: number, isCrit: boolean) => {
-        if (punchIndicatorTimeoutRef.current) {
-            clearTimeout(punchIndicatorTimeoutRef.current);
+        // If a crit animation is currently visible, don't let a normal punch override it.
+        if (showPunchIndicator.isCrit && !isCrit) {
+            // The punch still deals damage, but we don't touch the indicator state,
+            // allowing the crit animation to finish.
+        } else {
+            // This is a crit, or a normal punch when no crit is animating.
+            // It's safe to reset the indicator.
+            if (punchIndicatorTimeoutRef.current) {
+                clearTimeout(punchIndicatorTimeoutRef.current);
+            }
+            setShowPunchIndicator({ isVisible: true, isCrit });
+            punchIndicatorTimeoutRef.current = window.setTimeout(() => {
+                // Use a functional update to prevent race conditions.
+                // This ensures we only hide the indicator if a new one hasn't been triggered.
+                setShowPunchIndicator(currentIndicator => {
+                    if (currentIndicator.isVisible && currentIndicator.isCrit === isCrit) {
+                        return { isVisible: false, isCrit: false };
+                    }
+                    return currentIndicator;
+                });
+            }, 1000);
         }
-        setShowPunchIndicator({ isVisible: true, isCrit });
-        punchIndicatorTimeoutRef.current = window.setTimeout(() => {
-            setShowPunchIndicator({ isVisible: false, isCrit: false });
-        }, 1000);
 
         if (isCrit) {
             setCritShake(true);
@@ -821,10 +836,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             damage = 1;
             cooldown = 250;
         } else if (duration < 1000) {
-            damage = 3;
+            damage = 5;
             cooldown = 500;
         } else {
-            damage = 5;
+            damage = 10;
             isCrit = true;
             cooldown = 1000;
         }
@@ -871,8 +886,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 id: nextObjectId.current++,
                 type: 'rock',
                 position: newPosition,
-                health: 20,
-                maxHealth: 20,
+                health: 150,
+                maxHealth: 150,
                 emoji: '🪨',
                 size: 4,
                 hitbox: ROCK_HITBOX,
@@ -1042,11 +1057,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     
     const hotbarItems = inventory.slice(0, 5);
 
-    let indicatorType: 'build' | 'punch' | 'charging' | 'none' = 'none';
-    if (selectedSlot !== null) indicatorType = 'build';
-    else if (isCharging) indicatorType = 'charging';
-    else if (showPunchIndicator.isVisible) indicatorType = 'punch';
-
     const selectedItem = selectedSlot !== null ? inventory[selectedSlot] : null;
     const canBuild = !!selectedItem && (selectedItem.type === 'stone' || selectedItem.type === 'workbench');
 
@@ -1057,13 +1067,28 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     if (entity.type === 'player') {
                          return (
                             <div key="player" style={{ position: 'absolute', left: entity.position.x, top: entity.position.y }}>
-                                <InteractionIndicator 
-                                    rotation={playerRotation} 
-                                    type={indicatorType} 
-                                    chargeLevel={chargeLevel}
-                                    isCrit={showPunchIndicator.isCrit}
-                                />
-                                {settings.showPunchHitbox && indicatorType === 'none' && (
+                                {/* Logic for indicators */}
+                                {selectedSlot !== null && (
+                                    <InteractionIndicator rotation={playerRotation} type="build" />
+                                )}
+                                
+                                {/* Show charging indicator AND punch animation simultaneously */}
+                                {isCharging && (
+                                    <InteractionIndicator
+                                        rotation={playerRotation}
+                                        type="charging"
+                                        chargeLevel={chargeLevel}
+                                    />
+                                )}
+                                {showPunchIndicator.isVisible && (
+                                    <InteractionIndicator
+                                        rotation={playerRotation}
+                                        type="punch"
+                                        isCrit={showPunchIndicator.isCrit}
+                                    />
+                                )}
+    
+                                {settings.showPunchHitbox && selectedSlot === null && !isCharging && !showPunchIndicator.isVisible && (
                                     <InteractionIndicator rotation={playerRotation} type="punch" isDebug />
                                 )}
                                 <Player rotation={playerRotation} />
