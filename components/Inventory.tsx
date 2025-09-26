@@ -86,15 +86,24 @@ const Inventory: React.FC<InventoryProps> = ({
 
     return (
         // Основной полноэкранный контейнер с отступами, центрируется на средних и больших экранах
-        <div className="absolute inset-0 bg-black/70 z-20 flex flex-col p-2 pt-4 sm:p-4 text-white md:items-center md:justify-center" onClick={onClose}>
+        <div className="absolute inset-0 bg-black/70 z-20 flex flex-col sm:p-4 text-white md:items-center md:justify-center" onClick={onClose}>
             
             {/* Модальное окно: полная высота/ширина на мобильных, авто на десктопе */}
             <div 
-                className="w-full h-full flex flex-col bg-black/50 md:rounded-xl border border-gray-700 shadow-lg md:w-auto md:h-auto"
+                className="relative w-full h-full flex flex-col bg-black/50 md:rounded-xl border-t sm:border border-gray-700 shadow-lg md:w-auto md:h-auto"
                 onClick={e => e.stopPropagation()}
             >
+                {/* Кнопка закрытия для мобильных устройств */}
+                <button
+                    onClick={onClose}
+                    className="absolute top-2 right-2 w-8 h-8 bg-red-600/80 rounded-full flex items-center justify-center text-white text-xl font-bold z-30 sm:hidden"
+                    aria-label="Закрыть инвентарь"
+                >
+                    &times;
+                </button>
+
                 {/* Верхняя секция: Игрок и Крафт. Вертикальная на мобильных, горизонтальная на больших экранах */}
-                <div className="flex flex-col sm:flex-row p-2 sm:p-4 gap-2 sm:gap-4 items-center sm:items-start">
+                <div className="flex flex-col sm:flex-row p-2 pt-8 sm:p-4 gap-2 sm:gap-4 items-center sm:items-start">
                 
                     {/* Левая сторона: Персонаж и Экипировка */}
                     <div className="flex justify-center items-start gap-2 md:gap-4 flex-shrink-0">
