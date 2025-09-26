@@ -1194,6 +1194,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     onInventorySlotClick={handleInventorySlotClick}
                     onCraftingSlotClick={handleCraftingSlotClick}
                     onTakeOutput={handleTakeOutput}
+                    settings={settings}
                 />
             )}
         </div>

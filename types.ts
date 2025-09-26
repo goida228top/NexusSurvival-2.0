@@ -45,6 +45,12 @@ export type Recipe = {
   ingredients: InventoryItem[];
 };
 
+export type UILayout = {
+  x: number; // percentage
+  y: number; // percentage
+  scale: number;
+};
+
 export type GameSettings = {
   joystickSize: number;
   buttonSize: number;
@@ -52,9 +58,15 @@ export type GameSettings = {
   showFps: boolean;
   showHitboxes: boolean;
   showPunchHitbox: boolean;
+  layouts: {
+    player: UILayout;
+    crafting: UILayout;
+    grid: UILayout;
+  };
+  inventoryBackgroundColor: string;
 };
 
-export type GameState = 'menu' | 'mode-select' | 'connecting' | 'playing' | 'paused' | 'settings' | 'inventory';
+export type GameState = 'menu' | 'mode-select' | 'connecting' | 'playing' | 'paused' | 'settings' | 'inventory' | 'customize-ui';
 
 // FIX: Added PeerJSDataConnection type to resolve import error in OnlineLobby.tsx
 export type PeerJSDataConnection = {

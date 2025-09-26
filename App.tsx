@@ -11,6 +11,12 @@ const defaultSettings: GameSettings = {
     showFps: false,
     showHitboxes: false,
     showPunchHitbox: false,
+    layouts: {
+        player: { x: 50, y: 22, scale: 1 },
+        crafting: { x: 50, y: 53, scale: 1 },
+        grid: { x: 50, y: 82, scale: 1 },
+    },
+    inventoryBackgroundColor: 'rgba(0, 0, 0, 0.7)',
 };
 
 type GameMode = 'offline' | 'online';
@@ -26,7 +32,16 @@ const App: React.FC = () => {
             const savedSettings = localStorage.getItem('gameSettings');
             if (savedSettings) {
                 const parsed = JSON.parse(savedSettings);
-                return { ...defaultSettings, ...parsed };
+                // Deep merge with defaults to ensure all properties are present
+                const mergedSettings = {
+                     ...defaultSettings, 
+                     ...parsed,
+                     layouts: {
+                         ...defaultSettings.layouts,
+                         ...(parsed.layouts || {}),
+                     }
+                };
+                return mergedSettings;
             }
         } catch (error) {
             console.error("Failed to load settings from localStorage", error);
@@ -140,11 +155,15 @@ const App: React.FC = () => {
                     </div>
                 );
             case 'settings':
+            case 'customize-ui':
                 return (
                     <Settings 
                         settings={settings}
                         setSettings={setSettings}
-                        onBack={handleBackToMenu}
+                        onBack={() => setGameState(gameState === 'customize-ui' ? 'settings' : 'menu')}
+                        setGameState={setGameState}
+                        customizeMode={gameState === 'customize-ui'}
+                        defaultLayouts={defaultSettings.layouts}
                     />
                 );
             case 'mode-select':
