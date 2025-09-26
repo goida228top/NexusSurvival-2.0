@@ -3,10 +3,13 @@ import React from 'react';
 
 interface InteractionIndicatorProps {
   rotation: number;
-  type: 'build' | 'punch' | 'none';
+  type: 'build' | 'punch' | 'charging' | 'none';
+  isDebug?: boolean;
+  chargeLevel?: number;
+  isCrit?: boolean;
 }
 
-const InteractionIndicator: React.FC<InteractionIndicatorProps> = ({ rotation, type }) => {
+const InteractionIndicator: React.FC<InteractionIndicatorProps> = ({ rotation, type, isDebug, chargeLevel = 0, isCrit = false }) => {
   if (type === 'none') {
     return null;
   }
@@ -19,8 +22,6 @@ const InteractionIndicator: React.FC<InteractionIndicatorProps> = ({ rotation, t
     height: '1px',
     transform: `rotate(${rotation}deg)`,
     pointerEvents: 'none',
-    // zIndex was removed as it was causing the indicator to render behind the background.
-    // Render order in Game.tsx now correctly handles layering.
   };
 
   const baseIndicatorStyle: React.CSSProperties = {
@@ -48,38 +49,81 @@ const InteractionIndicator: React.FC<InteractionIndicatorProps> = ({ rotation, t
     );
   }
 
+  const punchIndicatorBaseStyle: React.CSSProperties = {
+      position: 'absolute',
+      left: '-60px',
+      top: '-63px',
+      width: '120px',
+      height: '60px',
+  };
+
+  if (type === 'charging') {
+      const chargeColors = [
+          'rgba(200, 200, 200, 0.5)', // Level 0
+          'rgba(255, 220, 0, 0.6)',   // Level 1
+          'rgba(255, 100, 0, 0.7)'    // Level 2 (crit ready)
+      ];
+      const chargeStrokeColors = [
+          'rgba(200, 200, 200, 0.8)',
+          'rgba(255, 220, 0, 0.9)',
+          'rgba(255, 100, 0, 1)'
+      ];
+
+      return (
+           <div style={rotatorStyle}>
+              <div style={punchIndicatorBaseStyle}>
+                  <svg width="120" height="60" viewBox="0 0 120 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path
+                          d="M 34.3 27.4 A 40 40 0 0 1 85.7 27.4 L 69.6 46.5 A 15 15 0 0 0 50.4 46.5 Z"
+                          fill={chargeColors[chargeLevel]}
+                          stroke={chargeStrokeColors[chargeLevel]}
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                      />
+                  </svg>
+              </div>
+          </div>
+      );
+  }
+
   if (type === 'punch') {
-    // This logic precisely positions the indicator's origin point relative to the player's hitbox center.
-    const punchIndicatorStyle: React.CSSProperties = {
-        position: 'absolute',
-        // We position the container so that the SVG's vertex (the attack origin at coordinate 60,58)
-        // aligns with the player's hitbox center.
-        // The player hitbox is offset by -5px vertically from the logical position.
-        // left: Place the container's left edge at -60px so the center (at 60px) aligns with 0.
-        left: '-60px',
-        // top: Place the container's top edge at -63px. This makes the vertex y-position (at 58px from top)
-        // end up at -5px (-63 + 58 = -5).
-        top: '-63px',
-        width: '120px',
-        height: '60px',
-    };
-    return (
-        <div style={rotatorStyle}>
-            <div style={punchIndicatorStyle} className="animate-indicator">
-                <svg width="120" height="60" viewBox="0 0 120 60" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    {/* A path for a segment of a ring (annulus), creating a cutout for the player */}
-                    <path
-                        d="M 28.2 26.2 A 45 45 0 0 1 91.8 26.2 L 70.6 47.4 A 15 15 0 0 0 49.4 47.4 Z"
-                        fill="rgba(255, 0, 0, 0.3)"
-                        stroke="rgba(255, 0, 0, 0.8)"
-                        strokeWidth="4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                    />
-                </svg>
-            </div>
-        </div>
-    );
+      if (isCrit) {
+          // Critical Hit Indicator
+          return (
+              <div style={rotatorStyle}>
+                  <div style={punchIndicatorBaseStyle} className={"animate-indicator"}>
+                      <svg width="120" height="60" viewBox="0 0 120 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path
+                              d="M 26.8 19.3 A 50 50 0 0 1 93.2 19.3 L 72.1 46.5 A 20 20 0 0 0 47.9 46.5 Z"
+                              fill="rgba(255, 220, 0, 0.5)"
+                              stroke="rgba(255, 255, 255, 0.9)"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                          />
+                      </svg>
+                  </div>
+              </div>
+          );
+      }
+      // Normal Punch Indicator
+      return (
+          <div style={rotatorStyle}>
+              <div style={punchIndicatorBaseStyle} className={!isDebug ? "animate-indicator" : ""}>
+                  <svg width="120" height="60" viewBox="0 0 120 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path
+                          d="M 34.3 27.4 A 40 40 0 0 1 85.7 27.4 L 69.6 46.5 A 15 15 0 0 0 50.4 46.5 Z"
+                          fill="rgba(255, 0, 0, 0.3)"
+                          stroke="rgba(255, 0, 0, 0.8)"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                      />
+                  </svg>
+              </div>
+          </div>
+      );
   }
 
   return null;

@@ -1,10 +1,12 @@
+
 export type Position = { x: number; y: number };
 
 export type WorldObject = {
   id: number;
-  type: 'tree' | 'rock';
+  type: 'tree' | 'rock' | 'workbench';
   position: Position;
   health: number;
+  maxHealth: number;
   emoji: string;
   size: number;
   hitbox?: { width: number; height: number; offsetY: number };
@@ -30,11 +32,17 @@ export type RemotePlayer = {
 
 export type GameEntity = WorldObject | Player | RemotePlayer;
 
-export type InventoryItemType = 'wood' | 'stone';
+export type InventoryItemType = 'plank' | 'stone' | 'stick' | 'workbench';
 
 export type InventoryItem = {
   type: InventoryItemType;
   quantity: number;
+};
+
+export type Recipe = {
+  id: string;
+  output: InventoryItem;
+  ingredients: InventoryItem[];
 };
 
 export type GameSettings = {
@@ -43,9 +51,10 @@ export type GameSettings = {
   inventorySize: number;
   showFps: boolean;
   showHitboxes: boolean;
+  showPunchHitbox: boolean;
 };
 
-export type GameState = 'menu' | 'mode-select' | 'connecting' | 'playing' | 'paused' | 'settings';
+export type GameState = 'menu' | 'mode-select' | 'connecting' | 'playing' | 'paused' | 'settings' | 'inventory';
 
 // FIX: Added PeerJSDataConnection type to resolve import error in OnlineLobby.tsx
 export type PeerJSDataConnection = {

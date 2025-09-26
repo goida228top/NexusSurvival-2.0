@@ -10,6 +10,7 @@ const defaultSettings: GameSettings = {
     inventorySize: 64,
     showFps: false,
     showHitboxes: false,
+    showPunchHitbox: false,
 };
 
 type GameMode = 'offline' | 'online';
@@ -187,6 +188,7 @@ const App: React.FC = () => {
                 );
             case 'playing':
             case 'paused':
+            case 'inventory':
                 return <Game 
                             gameState={gameState} 
                             setGameState={setGameState} 

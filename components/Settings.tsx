@@ -93,6 +93,21 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack }) =>
                         />
                     </button>
                 </div>
+
+                 <div className="flex items-center justify-between">
+                    <label htmlFor="showPunchHitbox" className="text-lg">Показывать хитбокс удара</label>
+                    <button
+                        id="showPunchHitbox"
+                        role="switch"
+                        aria-checked={settings.showPunchHitbox}
+                        onClick={() => handleSettingChange('showPunchHitbox', !settings.showPunchHitbox)}
+                        className={`relative inline-flex items-center h-8 w-14 rounded-full transition-colors ${settings.showPunchHitbox ? 'bg-green-500' : 'bg-gray-600'}`}
+                    >
+                        <span
+                            className={`inline-block w-6 h-6 transform bg-white rounded-full transition-transform ${settings.showPunchHitbox ? 'translate-x-7' : 'translate-x-1'}`}
+                        />
+                    </button>
+                </div>
             </div>
 
             <button
