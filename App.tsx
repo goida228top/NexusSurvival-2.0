@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Game from './components/Game';
 import Settings from './components/Settings';
-import type { GameSettings, GameState } from './types';
+import type { GameSettings, GameState, RemotePlayer } from './types';
 
 const defaultSettings: GameSettings = {
     joystickSize: 160,
@@ -52,6 +52,7 @@ const App: React.FC = () => {
     const [socket, setSocket] = useState<WebSocket | null>(null);
     const [playerId, setPlayerId] = useState<string | null>(null);
     const [connectionError, setConnectionError] = useState<string | null>(null);
+    const [initialPlayers, setInitialPlayers] = useState<RemotePlayer[]>([]);
 
     const pingIntervalRef = useRef<number | null>(null);
     const pongTimeoutRef = useRef<number | null>(null);
@@ -90,6 +91,7 @@ const App: React.FC = () => {
             } else if (data.type === 'init') {
                 console.log("Received init from server, my ID:", data.playerId);
                 setPlayerId(data.playerId);
+                setInitialPlayers(data.players || []);
                 setGameMode('online');
                 setGameState('playing');
                 setConnectionError(null);
@@ -293,6 +295,7 @@ const App: React.FC = () => {
                             gameMode={gameMode}
                             socket={socket}
                             playerId={playerId}
+                            initialPlayers={initialPlayers}
                             onBackToMenu={handleBackToMenu}
                         />;
         }

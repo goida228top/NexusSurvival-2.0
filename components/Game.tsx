@@ -16,6 +16,7 @@ interface GameProps {
     gameMode: GameMode;
     socket: WebSocket | null;
     playerId: string | null;
+    initialPlayers: RemotePlayer[];
     onBackToMenu: () => void;
 }
 
@@ -155,7 +156,7 @@ const lerpAngle = (start: number, end: number, amt: number) => {
     return value % 360;
 }
 
-const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, socket, playerId, onBackToMenu }) => {
+const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, socket, playerId, initialPlayers, onBackToMenu }) => {
     const { useState, useEffect, useRef } = React;
     const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
     const [playerPosition, setPlayerPosition] = useState<Position>({ x: 100, y: 100 });
@@ -211,14 +212,39 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
     const lastTimeRef = useRef<number>(performance.now());
     const frameCountRef = useRef<number>(0);
+    const playersInitialized = useRef(false);
     
     const selectedItem = selectedSlot !== null ? inventory[selectedSlot] : null;
     const canBuild = !!selectedItem && (selectedItem.type === 'stone' || selectedItem.type === 'workbench');
     
+    useEffect(() => {
+        if (gameMode === 'online' && !playersInitialized.current && initialPlayers.length > 0) {
+            const newRemotePlayers: { [id: string]: RemotePlayer } = {};
+            for (const p of initialPlayers) {
+                const id = String(p.id);
+                if (id === playerId) continue; // Filter out self
+                const pos = { x: p.x, y: p.y };
+                newRemotePlayers[id] = {
+                    id: id,
+                    type: 'remote-player',
+                    position: pos,
+                    targetPosition: pos,
+                    rotation: p.rotation,
+                    targetRotation: p.rotation,
+                    nickname: p.nickname || `Player_${id.substring(0, 4)}`,
+                    health: p.health || 100,
+                };
+            }
+            setRemotePlayers(newRemotePlayers);
+            playersInitialized.current = true;
+        }
+    }, [gameMode, initialPlayers, playerId]);
+
     // --- WebSocket Online Logic ---
     useEffect(() => {
         if (gameMode !== 'online' || !socket) {
             setRemotePlayers({});
+            playersInitialized.current = false;
             return;
         }
 
@@ -226,27 +252,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             try {
                 const data = JSON.parse(event.data);
                 switch (data.type) {
-                    case 'init': {
-                        const playersData = data.players || [];
-                        const newRemotePlayers: { [id: string]: RemotePlayer } = {};
-                        for (const p of playersData) {
-                            const id = String(p.id);
-                            if (id === playerId) continue; // Filter out self
-                            const pos = { x: p.x, y: p.y };
-                            newRemotePlayers[id] = {
-                                id: id,
-                                type: 'remote-player',
-                                position: pos,
-                                targetPosition: pos,
-                                rotation: p.rotation,
-                                targetRotation: p.rotation,
-                                nickname: p.nickname || `Player_${id.substring(0, 4)}`,
-                                health: p.health || 100,
-                            };
-                        }
-                        setRemotePlayers(newRemotePlayers);
-                        break;
-                    }
                     case 'player_joined': {
                         const p = data.player; // Assuming payload is { type: 'player_joined', player: {...} }
                         if (!p || !p.id || p.id === playerId) {
@@ -281,39 +286,30 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     }
                     case 'player_moved': {
                         const { playerId: movedPlayerId, x, y, rotation } = data;
-                        if (movedPlayerId !== undefined && movedPlayerId !== playerId) {
-                             const id = String(movedPlayerId);
-                             setRemotePlayers(prev => {
-                                const player = prev[id];
-                                if (player) {
-                                    return {
-                                        ...prev,
-                                        [id]: {
-                                            ...player,
-                                            targetPosition: { x, y },
-                                            targetRotation: rotation,
-                                        }
-                                    };
-                                } else {
-                                     // Player might not be known yet, server should send player_joined first.
-                                     // For now, we can add them to handle cases where messages arrive out of order.
-                                    const pos = { x, y };
-                                    return {
-                                        ...prev,
-                                        [id]: {
-                                            id: id,
-                                            type: 'remote-player',
-                                            position: pos,
-                                            targetPosition: pos,
-                                            rotation: rotation,
-                                            targetRotation: rotation,
-                                            nickname: `Player_${id.substring(0, 4)}`,
-                                            health: 100,
-                                        }
-                                    };
-                                }
-                            });
+                        if (movedPlayerId === undefined || movedPlayerId === playerId) {
+                            return; // Ignore if no ID or it's our own echo
                         }
+                        
+                        const id = String(movedPlayerId);
+                        setRemotePlayers(prev => {
+                            // Guard clause: if player doesn't exist, do nothing.
+                            if (!prev[id]) {
+                                console.warn(`[Move Handler] Player ID ${id} not found. Ignoring movement update.`);
+                                return prev;
+                            }
+
+                            // Player exists, create a new state object with the updated player.
+                            const updatedPlayer = {
+                                ...prev[id],
+                                targetPosition: { x, y },
+                                targetRotation: rotation,
+                            };
+
+                            return {
+                                ...prev,
+                                [id]: updatedPlayer
+                            };
+                        });
                         break;
                     }
                 }
