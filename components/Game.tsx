@@ -253,6 +253,49 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             try {
                 const data = JSON.parse(event.data);
                 switch (data.type) {
+                    case 'players_update': {
+                        const playersUpdate = data.players;
+                        if (!playersUpdate || !Array.isArray(playersUpdate)) {
+                            break;
+                        }
+                    
+                        setRemotePlayers(prev => {
+                            const newPlayersState: { [id: string]: RemotePlayer } = {};
+                            
+                            for (const p of playersUpdate) {
+                                const id = String(p.id);
+                                if (id === playerId) continue; // Don't add self to remote players
+                    
+                                const existingPlayer = prev[id];
+                                
+                                if (existingPlayer) {
+                                    // Player exists: update target, keep current position for interpolation
+                                    newPlayersState[id] = {
+                                        ...existingPlayer,
+                                        targetPosition: { x: p.x, y: p.y },
+                                        targetRotation: p.rotation,
+                                        nickname: p.nickname || existingPlayer.nickname,
+                                        health: p.health || existingPlayer.health,
+                                    };
+                                } else {
+                                    // New player: initialize with position set to target
+                                    const pos = { x: p.x, y: p.y };
+                                    newPlayersState[id] = {
+                                        id: id,
+                                        type: 'remote-player',
+                                        position: pos,
+                                        targetPosition: pos,
+                                        rotation: p.rotation,
+                                        targetRotation: p.rotation,
+                                        nickname: p.nickname || `Player_${id.substring(0, 4)}`,
+                                        health: p.health || 100,
+                                    };
+                                }
+                            }
+                            return newPlayersState;
+                        });
+                        break;
+                    }
                     case 'player_joined': {
                         const p = data.player; // Assuming payload is { type: 'player_joined', player: {...} }
                         if (!p || !p.id || p.id === playerId) {
