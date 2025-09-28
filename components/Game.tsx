@@ -74,6 +74,12 @@ type HealthIndicatorInfo = {
 };
 type DraggedItem = { item: InventoryItem; source: { index: number; type: 'inventory' | 'crafting' | 'output' } };
 
+// Type for incoming player data from the server to ensure type safety.
+type IncomingPlayer = {
+    id: string; x: number; y: number; rotation: number;
+    nickname: string; health?: number;
+};
+
 
 const getPlayerHitbox = (position: Position): Circle => {
     return {
@@ -175,7 +181,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const [critShake, setCritShake] = useState(false);
     const [lockRotation, setLockRotation] = useState(false);
 
-
     const [remotePlayers, setRemotePlayers] = useState<{ [id: string]: RemotePlayer }>({});
 
     // Crafting State
@@ -210,7 +215,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const healthIndicatorsRef = useRef<{ [id: number]: HealthIndicatorInfo }>(healthIndicators);
     healthIndicatorsRef.current = healthIndicators;
 
-
     const lastTimeRef = useRef<number>(performance.now());
     const frameCountRef = useRef<number>(0);
     const playersInitialized = useRef(false);
@@ -222,9 +226,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         if (gameMode === 'online' && !playersInitialized.current && initialPlayers.length > 0) {
             const now = performance.now();
             const newRemotePlayers: { [id: string]: RemotePlayer } = {};
-            for (const p of initialPlayers) {
+            const initialPlayersData = initialPlayers as any[] as IncomingPlayer[];
+            for (const p of initialPlayersData) {
                 const id = String(p.id).trim();
-                if (id === playerId) continue; // Filter out self
+                if (id === playerId) continue;
                 const pos = { x: p.x, y: p.y };
                 newRemotePlayers[id] = {
                     id: id,
@@ -254,65 +259,37 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
         const handleMessage = (event: MessageEvent) => {
             try {
-                const data = JSON.parse(event.data);
+                const data: { type: string, [key: string]: any } = JSON.parse(event.data);
                 const now = performance.now();
                 switch (data.type) {
                     case 'players_update': {
-                        const playersUpdate = data.players;
-                        if (!playersUpdate || !Array.isArray(playersUpdate)) {
-                            break;
-                        }
-                    
-                        // Deduplicate players from the server, keeping the last entry for each nickname.
-                        // This robustly handles server-side bugs where moving players create clone entries.
-                        const uniquePlayers = new Map<string, any>();
-                        for (const p of playersUpdate) {
-                            if (p && p.nickname) {
-                                uniquePlayers.set(p.nickname, p);
-                            }
-                        }
+                        const playersUpdate = data.players as IncomingPlayer[];
+                        if (!playersUpdate || !Array.isArray(playersUpdate)) break;
                     
                         setRemotePlayers(prev => {
                             const newPlayersState: { [id: string]: RemotePlayer } = {};
-                            
-                            // FIX: Define a type for incoming player data and cast to it to prevent 'unknown' type errors.
-                            type IncomingPlayer = {
-                                id: string;
-                                x: number;
-                                y: number;
-                                rotation: number;
-                                nickname: string;
-                                health?: number;
-                            };
+                            const updatedIds = new Set<string>();
 
-                            for (const p of uniquePlayers.values()) {
-                                const playerUpdateData = p as IncomingPlayer;
-                                const id = String(playerUpdateData.id).trim();
-                                // Filter out self and invalid data
-                                if (id === playerId || playerUpdateData.x === undefined || playerUpdateData.y === undefined) continue;
-                    
-                                // Find any existing version of this player by nickname, even with a different ID.
-                                // This is crucial for seamless updates if the server incorrectly assigns a new ID.
-                                const existingPlayerByNickname = Object.values(prev).find(player => player.nickname === playerUpdateData.nickname);
-                    
-                                // If a player with this nickname already exists, start interpolating from their
-                                // last known position to prevent visual teleportation. Otherwise, start at the new position.
-                                const startPosition = existingPlayerByNickname ? existingPlayerByNickname.position : { x: playerUpdateData.x, y: playerUpdateData.y };
-                                const startRotation = existingPlayerByNickname ? existingPlayerByNickname.rotation : playerUpdateData.rotation;
+                            for (const p of playersUpdate) {
+                                const id = String(p.id).trim();
+                                if (id === playerId) continue;
                                 
-                                const positionChanged = !existingPlayerByNickname || existingPlayerByNickname.targetPosition.x !== playerUpdateData.x || existingPlayerByNickname.targetPosition.y !== playerUpdateData.y;
-                    
+                                updatedIds.add(id);
+                                const existingPlayer = prev[id];
+                                
+                                const positionChanged = !existingPlayer || existingPlayer.targetPosition.x !== p.x || existingPlayer.targetPosition.y !== p.y;
+                                
                                 newPlayersState[id] = {
                                     id: id,
                                     type: 'remote-player',
-                                    position: startPosition,
-                                    targetPosition: { x: playerUpdateData.x, y: playerUpdateData.y },
-                                    rotation: startRotation,
-                                    targetRotation: playerUpdateData.rotation,
-                                    nickname: playerUpdateData.nickname,
-                                    health: playerUpdateData.health || 100,
+                                    position: existingPlayer ? existingPlayer.position : { x: p.x, y: p.y },
+                                    targetPosition: { x: p.x, y: p.y },
+                                    rotation: existingPlayer ? existingPlayer.rotation : p.rotation,
+                                    targetRotation: p.rotation,
+                                    nickname: p.nickname,
+                                    health: p.health || 100,
                                     lastUpdateTime: now,
-                                    lastPositionChangeTime: positionChanged ? now : (existingPlayerByNickname?.lastPositionChangeTime || now),
+                                    lastPositionChangeTime: positionChanged ? now : (existingPlayer?.lastPositionChangeTime || now),
                                 };
                             }
                             return newPlayersState;
@@ -320,27 +297,39 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         break;
                     }
                     case 'player_joined': {
-                        const p = data.player;
-                        if (!p || !p.id || p.id === playerId || p.x === undefined || p.y === undefined) {
-                            break;
-                        }
-                        const id = String(p.id).trim();
-                        const pos = { x: p.x, y: p.y };
-                        setRemotePlayers(prev => ({
-                            ...prev,
-                            [id]: {
-                                id: id,
+                        const p = data.player as IncomingPlayer;
+                        if (!p || !p.id || p.id === playerId) break;
+                        
+                        const newId = String(p.id).trim();
+                        const newNickname = p.nickname;
+
+                        setRemotePlayers(prev => {
+                            const newPlayersState = { ...prev };
+                            
+                            // Anti-Clone: If a player with the same nickname already exists, remove it.
+                            const oldCloneEntry = Object.entries(newPlayersState).find(
+                                ([id, player]) => player.nickname === newNickname
+                            );
+                            if (oldCloneEntry) {
+                                delete newPlayersState[oldCloneEntry[0]];
+                            }
+
+                            const pos = { x: p.x, y: p.y };
+                            newPlayersState[newId] = {
+                                id: newId,
                                 type: 'remote-player',
                                 position: pos,
                                 targetPosition: pos,
                                 rotation: p.rotation,
                                 targetRotation: p.rotation,
-                                nickname: p.nickname || `Player_${id.substring(0, 4)}`,
+                                nickname: newNickname,
                                 health: p.health || 100,
                                 lastUpdateTime: now,
                                 lastPositionChangeTime: now,
-                            }
-                        }));
+                            };
+                    
+                            return newPlayersState;
+                        });
                         break;
                     }
                     case 'player_left': {
@@ -353,37 +342,22 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         }
                         break;
                     }
-                    case 'player_moved': {
-                        const { playerId: movedPlayerId, x, y, rotation, nickname: remoteNickname } = data;
-                        if (movedPlayerId === undefined || movedPlayerId === playerId) {
-                            return;
-                        }
-                        
-                        const id = String(movedPlayerId).trim();
-                        setRemotePlayers(prev => {
-                            const existingPlayer = prev[id];
-                            if (!existingPlayer) {
-                                // To prevent clones from move packets, do not create a new player here.
-                                // A 'player_joined' or 'players_update' should handle creation.
+                    case 'nickname_updated': {
+                        const { playerId: updatedPlayerId, nickname: newNickname } = data;
+                        if (updatedPlayerId && newNickname) {
+                            const id = String(updatedPlayerId).trim();
+                            if (id === playerId) break; // This is handled in App.tsx
+                            setRemotePlayers(prev => {
+                                const playerToUpdate = prev[id];
+                                if (playerToUpdate) {
+                                    return {
+                                        ...prev,
+                                        [id]: { ...playerToUpdate, nickname: newNickname }
+                                    };
+                                }
                                 return prev;
-                            }
-                            
-                            const positionChanged = existingPlayer.targetPosition.x !== x || existingPlayer.targetPosition.y !== y;
-
-                            const updatedPlayer = {
-                                ...existingPlayer,
-                                targetPosition: { x, y },
-                                targetRotation: rotation,
-                                nickname: remoteNickname || existingPlayer.nickname,
-                                lastUpdateTime: now,
-                                lastPositionChangeTime: positionChanged ? now : existingPlayer.lastPositionChangeTime,
-                            };
-
-                            return {
-                                ...prev,
-                                [id]: updatedPlayer
-                            };
-                        });
+                            });
+                        }
                         break;
                     }
                 }
@@ -409,48 +383,12 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 x: playerPositionRef.current.x,
                 y: playerPositionRef.current.y,
                 rotation: playerRotationRef.current,
-                nickname: nickname,
             }));
         }, 50); // Send updates 20 times per second
 
         return () => clearInterval(interval);
 
-    }, [gameMode, socket, nickname]);
-
-    // New effect for cleaning up stale players
-    useEffect(() => {
-        if (gameMode !== 'online') return;
-
-        const NO_UPDATE_TIMEOUT_MS = 10000; // 10 seconds without any message
-        const NO_MOVEMENT_TIMEOUT_MS = 20000; // 20 seconds without a position change, even if we get other updates
-        const CLEANUP_INTERVAL_MS = 5000; // Check every 5 seconds
-
-        const cleanupInterval = setInterval(() => {
-            const now = performance.now();
-            setRemotePlayers(prev => {
-                const newPlayersState: { [id: string]: RemotePlayer } = {};
-                let hasChanged = false;
-
-                for (const id in prev) {
-                    const player = prev[id];
-                    const noUpdate = now - player.lastUpdateTime > NO_UPDATE_TIMEOUT_MS;
-                    const noMovement = now - player.lastPositionChangeTime > NO_MOVEMENT_TIMEOUT_MS;
-                    
-                    if (noUpdate || noMovement) {
-                        console.log(`Auto-cleaning stale player: ${player.nickname} (${id}). Reason: ${noUpdate ? 'no updates' : 'no movement'}.`);
-                        hasChanged = true;
-                    } else {
-                        newPlayersState[id] = player;
-                    }
-                }
-
-                return hasChanged ? newPlayersState : prev;
-            });
-        }, CLEANUP_INTERVAL_MS);
-
-        return () => clearInterval(cleanupInterval);
-    }, [gameMode]);
-
+    }, [gameMode, socket]);
 
     const handlePause = () => setGameState('paused');
     const handleResume = () => setGameState('playing');
@@ -473,7 +411,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 setCraftingInput(Array(4).fill(undefined));
             }
         }
-    }, [gameState]);
+    }, [gameState, inventory, craftingInput]);
 
 
     useEffect(() => {
@@ -492,7 +430,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 return;
             }
 
-            // Handle Tab key globally to prevent focus switching, but apply game logic only when playing.
             if (e.key.toLowerCase() === 'tab') {
                 e.preventDefault(); 
                 if (gameState === 'playing' && !e.repeat && canBuild) {
@@ -677,11 +614,27 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     let hasChanged = false;
                     for (const id in currentRemotePlayers) {
                         const player = currentRemotePlayers[id];
-                        const newPos = {
-                            x: lerp(player.position.x, player.targetPosition.x, 0.2),
-                            y: lerp(player.position.y, player.targetPosition.y, 0.2),
-                        };
-                        const newRot = lerpAngle(player.rotation, player.targetRotation, 0.2);
+                        const distanceToTarget = Math.sqrt(
+                            (player.targetPosition.x - player.position.x) ** 2 +
+                            (player.targetPosition.y - player.position.y) ** 2
+                        );
+                
+                        let newPos = player.position;
+                        if (distanceToTarget > 1.0) { 
+                            const angle = Math.atan2(player.targetPosition.y - player.position.y, player.targetPosition.x - player.position.x);
+                            const moveSpeed = 4.0; 
+                            newPos = {
+                                x: player.position.x + Math.cos(angle) * moveSpeed,
+                                y: player.position.y + Math.sin(angle) * moveSpeed,
+                            };
+                        } else {
+                            newPos = {
+                                x: lerp(player.position.x, player.targetPosition.x, 0.25),
+                                y: lerp(player.position.y, player.targetPosition.y, 0.25),
+                            };
+                        }
+
+                        const newRot = lerpAngle(player.rotation, player.targetRotation, 0.25);
 
                         if (
                             Math.abs(player.position.x - newPos.x) > 0.01 || 

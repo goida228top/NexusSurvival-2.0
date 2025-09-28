@@ -98,26 +98,29 @@ const App: React.FC = () => {
                 }
             } else if (data.type === 'init') {
                 console.log("Received init from server, my ID:", data.playerId);
-
-                const myProposedNickname = nickname.trim() || `Guest${Math.floor(Math.random() * 10000)}`;
-                let uniqueNickname = myProposedNickname;
-                const otherPlayers: RemotePlayer[] = data.players || [];
-                const isCollision = otherPlayers.some(p => p.nickname === myProposedNickname);
-
-                if (isCollision) {
-                    uniqueNickname = `${myProposedNickname}_${data.playerId.slice(0, 4)}`;
-                    console.warn(`Nickname collision detected. Changing name to ${uniqueNickname}`);
-                }
                 
-                setFinalNickname(uniqueNickname);
                 setPlayerId(data.playerId);
-                setInitialPlayers(otherPlayers);
+                setInitialPlayers(data.players || []);
                 setGameMode('online');
                 setGameState('playing');
                 setConnectionError(null);
+                
+                // After getting our ID, we tell the server our desired nickname.
+                // The server is the authority and will confirm/change it.
+                socket?.send(JSON.stringify({
+                    type: 'set_nickname',
+                    nickname: nickname.trim() || `Guest${Math.floor(Math.random() * 10000)}`
+                }));
+
+            } else if (data.type === 'nickname_updated') {
+                // The server confirms our (or a new) nickname.
+                if (data.playerId === playerId) {
+                    console.log(`Server confirmed my nickname: ${data.nickname}`);
+                    setFinalNickname(data.nickname);
+                }
             }
         } catch (e) { /* ignore non-json messages */ }
-    }, [nickname]);
+    }, [nickname, playerId, socket]);
     
     const cleanupConnection = useCallback(() => {
         if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
