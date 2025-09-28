@@ -30,6 +30,7 @@ export type RemotePlayer = {
   nickname: string;
   health: number;
   lastUpdateTime: number;
+  lastPositionChangeTime: number;
 };
 
 export type GameEntity = WorldObject | Player | RemotePlayer;

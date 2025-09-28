@@ -237,6 +237,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                 
                                 if (existingPlayer) {
                                     // Player exists: update target, keep current position for interpolation
+                                    // FIX: Add missing lastPositionChangeTime property to resolve TS error.
+                                    const positionChanged = existingPlayer.targetPosition.x !== p.x || existingPlayer.targetPosition.y !== p.y;
                                     newPlayersState[id] = {
                                         ...existingPlayer,
                                         targetPosition: { x: p.x, y: p.y },
@@ -245,10 +247,12 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                         health: p.health,
                                         // FIX: Add missing lastUpdateTime property
                                         lastUpdateTime: now,
+                                        lastPositionChangeTime: positionChanged ? now : existingPlayer.lastPositionChangeTime,
                                     };
                                 } else {
                                     // New player: initialize with position set to target
                                     const pos = { x: p.x, y: p.y };
+                                    // FIX: Add missing lastPositionChangeTime property to resolve TS error.
                                     newPlayersState[id] = {
                                         id: id,
                                         type: 'remote-player',
@@ -260,6 +264,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                         health: p.health,
                                         // FIX: Add missing lastUpdateTime property
                                         lastUpdateTime: now,
+                                        lastPositionChangeTime: now,
                                     };
                                 }
                             }
@@ -289,6 +294,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                     health: p.health,
                                     // FIX: Add missing lastUpdateTime property
                                     lastUpdateTime: now,
+                                    // FIX: Add missing lastPositionChangeTime property to resolve TS error.
+                                    lastPositionChangeTime: now,
                                 }
                             }));
                         } else {
@@ -317,6 +324,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                              setRemotePlayers(prev => {
                                 const player = prev[id];
                                 if (player) {
+                                    // FIX: Add missing lastPositionChangeTime property to resolve TS error.
+                                    const positionChanged = player.targetPosition.x !== x || player.targetPosition.y !== y;
                                     return {
                                         ...prev,
                                         [id]: {
@@ -325,6 +334,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                             targetRotation: rotation,
                                             // FIX: Add missing lastUpdateTime property
                                             lastUpdateTime: now,
+                                            lastPositionChangeTime: positionChanged ? now : player.lastPositionChangeTime,
                                         }
                                     };
                                 }
