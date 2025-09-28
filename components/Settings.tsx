@@ -116,6 +116,18 @@ const PanelSettingsPopup: React.FC<{
     return (
         <div ref={popupRef} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-gray-800 border border-gray-600 rounded-lg p-4 shadow-lg w-80 space-y-4">
             <h4 className="text-lg font-bold text-center">Настройки элемента</h4>
+            
+            <div>
+                <label className="text-md mb-2 block">Видимость</label>
+                <div className="flex justify-around bg-gray-900/50 rounded-lg p-1">
+                    <button onClick={() => onLayoutChange({ visible: true })} className={`px-3 py-1 rounded-md text-sm ${panelLayout.visible !== false ? 'bg-indigo-600' : 'bg-gray-700'}`}>
+                        Показан
+                    </button>
+                    <button onClick={() => onLayoutChange({ visible: false })} className={`px-3 py-1 rounded-md text-sm ${panelLayout.visible === false ? 'bg-indigo-600' : 'bg-gray-700'}`}>
+                        Скрыт
+                    </button>
+                </div>
+            </div>
 
             {panelLayout.backgroundColor !== undefined && (
                  <div>
@@ -270,7 +282,7 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack, setG
                     };
                     
                     return (
-                        <div key={key} ref={panelRefs[key as keyof typeof panelRefs]} style={panelStyle} onMouseDown={(e) => handleDragStart(e, key, 'drag')} onTouchStart={(e) => handleDragStart(e, key, 'drag')}>
+                        <div key={key} ref={panelRefs[key as keyof typeof panelRefs]} style={panelStyle} className={layout.visible === false ? 'opacity-30 hover:opacity-70 transition-opacity' : ''} onMouseDown={(e) => handleDragStart(e, key, 'drag')} onTouchStart={(e) => handleDragStart(e, key, 'drag')}>
                             <div className="relative">
                                 {key === 'player' && <DummyPlayerPanel layout={layout} />}
                                 {key === 'crafting' && <DummyCraftingPanel layout={layout} />}
@@ -280,6 +292,16 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack, setG
                                 {key === 'buildButton' && <DummyActionButton layout={layout} size={settings.buttonSize} text="Строить" colorClasses="bg-yellow-500/80 border-2 border-yellow-800" />}
                                 {key === 'hotbar' && <DummyHotbar layout={layout} size={settings.inventorySize} />}
                                 
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleUpdatePanelLayout(key, { visible: layout.visible === false });
+                                    }}
+                                    title={layout.visible === false ? "Показать" : "Скрыть"}
+                                    className="absolute -top-2 -left-2 w-7 h-7 bg-purple-500 rounded-full flex items-center justify-center text-lg border-2 border-white cursor-pointer z-10"
+                                >
+                                     {layout.visible === false ? '👁️‍🗨️' : '👁️'}
+                                </button>
                                 <button onClick={(e) => { e.stopPropagation(); setEditingPanelKey(key); }} className="absolute -top-2 -right-2 w-7 h-7 bg-indigo-500 rounded-full flex items-center justify-center text-lg border-2 border-white cursor-pointer z-10">⚙️</button>
                                 <div className="absolute -right-1 -bottom-1 w-5 h-5 bg-blue-500 rounded-full border-2 border-white cursor-nwse-resize" onMouseDown={(e) => handleDragStart(e, key, 'resize')} onTouchStart={(e) => handleDragStart(e, key, 'resize')} />
                             </div>

@@ -13,14 +13,14 @@ const defaultSettings: GameSettings = {
     showPunchHitbox: false,
     layouts: {
         // Inventory
-        player: { x: 50, y: 22, scale: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' },
-        crafting: { x: 50, y: 53, scale: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' },
-        grid: { x: 50, y: 82, scale: 1, gridStyle: 'grid', backgroundColor: 'rgba(0, 0, 0, 0.5)' },
+        player: { x: 50, y: 22, scale: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', visible: true },
+        crafting: { x: 50, y: 53, scale: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', visible: true },
+        grid: { x: 50, y: 82, scale: 1, gridStyle: 'grid', backgroundColor: 'rgba(0, 0, 0, 0.5)', visible: true },
         // HUD
-        joystick: { x: 12, y: 85, scale: 1 },
-        punchButton: { x: 92, y: 88, scale: 1, shape: 'square' },
-        buildButton: { x: 92, y: 75, scale: 1, shape: 'square' },
-        hotbar: { x: 50, y: 95, scale: 1, gridStyle: 'row', backgroundColor: 'rgba(0, 0, 0, 0.2)' },
+        joystick: { x: 12, y: 85, scale: 1, visible: true },
+        punchButton: { x: 92, y: 88, scale: 1, shape: 'square', visible: true },
+        buildButton: { x: 92, y: 75, scale: 1, shape: 'square', visible: true },
+        hotbar: { x: 50, y: 95, scale: 1, gridStyle: 'row', backgroundColor: 'rgba(0, 0, 0, 0.2)', visible: true },
     },
     inventoryBackgroundColor: 'rgba(0, 0, 0, 0.7)',
 };
@@ -48,6 +48,8 @@ const App: React.FC = () => {
     const [gameMode, setGameMode] = useState<GameMode>('offline');
     const [socket, setSocket] = useState<WebSocket | null>(null);
     const [connectionError, setConnectionError] = useState<string | null>(null);
+    const [serverIp, setServerIp] = useState('localhost:3000');
+
 
     const [settings, setSettings] = useState<GameSettings>(() => {
         try {
@@ -98,11 +100,15 @@ const App: React.FC = () => {
         setGameState('playing');
     }, [cleanupConnection]);
 
-    const handleOnlineClick = useCallback(() => {
+    const handleConnectClick = useCallback(() => {
+        if (!serverIp) {
+            setConnectionError('Пожалуйста, введите IP-адрес сервера.');
+            return;
+        }
         setGameState('connecting');
         setConnectionError(null);
     
-        const newSocket = new WebSocket('wss://nexussurvival.duckdns.org/websocket');
+        const newSocket = new WebSocket(`ws://${serverIp}`);
     
         newSocket.onopen = () => {
             console.log('WebSocket connection established.');
@@ -124,11 +130,11 @@ const App: React.FC = () => {
     
         newSocket.onerror = (error) => {
             console.error('WebSocket error:', error);
-            setConnectionError('Не удалось подключиться к серверу. Попробуйте снова позже.');
+            setConnectionError('Не удалось подключиться к серверу. Проверьте IP-адрес и убедитесь, что сервер запущен.');
             setSocket(null);
             setGameState('mode-select');
         };
-    }, []);
+    }, [serverIp]);
     
     const handleBackToMenu = useCallback(() => {
         cleanupConnection();
@@ -185,19 +191,28 @@ const App: React.FC = () => {
                     <div className="w-full h-full flex flex-col items-center justify-center bg-black p-4">
                         {connectionError && <p className="mb-4 text-center text-red-400 bg-red-900/50 p-3 rounded-md">{connectionError}</p>}
                         <h2 className="text-4xl font-bold mb-8">Выберите режим</h2>
-                        <div className="flex gap-4">
+                        <div className="flex flex-col sm:flex-row gap-4">
                             <button
                                 onClick={handleOfflineClick}
                                 className="px-8 py-4 bg-blue-600 text-white font-bold rounded-lg text-2xl hover:bg-blue-700 transition-colors"
                             >
                                 Офлайн
                             </button>
-                            <button
-                                onClick={handleOnlineClick}
-                                className="px-8 py-4 bg-purple-600 text-white font-bold rounded-lg text-2xl hover:bg-purple-700 transition-colors"
-                            >
-                                Онлайн
-                            </button>
+                            <div className="flex flex-col gap-2 items-center p-4 bg-gray-900/50 rounded-lg">
+                                <input
+                                    type="text"
+                                    value={serverIp}
+                                    onChange={(e) => setServerIp(e.target.value)}
+                                    placeholder="IP Сервера"
+                                    className="px-4 py-3 bg-gray-800 text-white rounded-lg text-lg w-full sm:w-80 text-center placeholder-gray-500 border-2 border-gray-700 focus:border-purple-500 focus:outline-none"
+                                />
+                                <button
+                                    onClick={handleConnectClick}
+                                    className="w-full px-8 py-4 bg-purple-600 text-white font-bold rounded-lg text-2xl hover:bg-purple-700 transition-colors"
+                                >
+                                    Подключиться
+                                </button>
+                            </div>
                         </div>
                          <button
                             onClick={handleBackToMenu}
@@ -210,7 +225,7 @@ const App: React.FC = () => {
             case 'connecting':
                  return (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-black">
-                        <p className="text-2xl animate-pulse">Подключение к серверу...</p>
+                        <p className="text-2xl animate-pulse">Подключение к {serverIp}...</p>
                         <button
                             onClick={handleBackToModeSelect}
                             className="mt-8 px-6 py-2 bg-red-600 text-white font-bold rounded-lg text-lg hover:bg-red-700 transition-colors"

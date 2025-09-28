@@ -49,6 +49,7 @@ export type UILayout = {
   x: number; // percentage
   y: number; // percentage
   scale: number;
+  visible?: boolean;
   backgroundColor?: string;
   shape?: 'square' | 'circle';
   gridStyle?: 'grid' | 'row' | 'column';

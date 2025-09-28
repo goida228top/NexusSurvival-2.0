@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import Joystick from './Joystick';
 import Player from './Player';
@@ -388,6 +389,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             }
             if (gameState !== 'playing') return;
 
+            if (e.key.toLowerCase() === 'tab') {
+                e.preventDefault(); // Prevent default browser behavior (focus switching)
+            }
+
             if (e.key === ' ' && !e.repeat) {
                 e.preventDefault();
                 handlePunchStart();
@@ -477,6 +482,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
                 const joystickMagnitude = Math.sqrt(joystickVector.current.x**2 + joystickVector.current.y**2);
                 const isSprinting = keysPressed.current['shift'] || joystickMagnitude > 0.9;
+                const isSlowWalking = keysPressed.current['tab'];
                 
                 const rotationSpeed = 0.25;
                 let targetVelX = 0;
@@ -493,7 +499,12 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
                         const walkSpeed = 2.0;
                         const sprintSpeed = 4.0;
-                        const speed = isSprinting ? sprintSpeed : walkSpeed;
+                        const slowWalkSpeed = 0.5; // A new speed for precision
+                        
+                        let speed = isSprinting ? sprintSpeed : walkSpeed;
+                        if (isSlowWalking) {
+                            speed = slowWalkSpeed;
+                        }
 
                         targetVelX = normalizedX * speed;
                         targetVelY = normalizedY * speed;
@@ -550,7 +561,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 setPlayerPosition(currentPosition => {
                     // Camera logic is placed here to get the most up-to-date player position.
                     if (gameContainerRef.current && gameWorldRef.current) {
-                        const zoom = isTouchDevice ? 1.1 : 1.5;
+                        const zoom = isTouchDevice ? 0.9 : 1.7;
                         const viewportWidth = gameContainerRef.current.clientWidth;
                         const viewportHeight = gameContainerRef.current.clientHeight;
     

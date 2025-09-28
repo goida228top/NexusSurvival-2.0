@@ -6,6 +6,7 @@ import InteractionIndicator from './InteractionIndicator';
 import Inventory from './Inventory';
 import type { Position, WorldObject, InventoryItem, InventoryItemType, GameSettings, GameEntity, GameState, RemotePlayer, Recipe } from '../types';
 import ItemIcon from './ItemIcon';
+import DebugMenu from './DebugMenu';
 
 type GameMode = 'offline' | 'online';
 interface GameProps {
@@ -68,6 +69,7 @@ type HealthIndicatorInfo = {
     position: Position;
     size: number;
 };
+type DraggedItem = { item: InventoryItem; source: { index: number; type: 'inventory' | 'crafting' | 'output' } };
 
 
 const getPlayerHitbox = (position: Position): Circle => {
@@ -160,7 +162,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const [worldObjects, setWorldObjects] = useState<WorldObject[]>(initialWorldObjects);
     const [inventory, setInventory] = useState<(InventoryItem | undefined)[]>(Array(INVENTORY_SIZE).fill(undefined));
     const [hitEffects, setHitEffects] = useState<number[]>([]);
-    const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+    const [selectedSlot, setSelectedSlot] = useState<number | null>(0);
     const [fps, setFps] = useState(0);
     const [showPunchIndicator, setShowPunchIndicator] = useState({ isVisible: false, isCrit: false });
     const [healthIndicators, setHealthIndicators] = useState<{ [id: number]: HealthIndicatorInfo }>({});
@@ -168,13 +170,17 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const [isCharging, setIsCharging] = useState(false);
     const [chargeLevel, setChargeLevel] = useState(0);
     const [critShake, setCritShake] = useState(false);
+    const [lockRotation, setLockRotation] = useState(false);
+
 
     const [remotePlayers, setRemotePlayers] = useState<{ [id: string]: RemotePlayer }>({});
 
     // Crafting State
     const [craftingInput, setCraftingInput] = useState<(InventoryItem | undefined)[]>(Array(4).fill(undefined));
     const [craftingOutput, setCraftingOutput] = useState<InventoryItem | undefined>(undefined);
-    const [filteredRecipes, setFilteredRecipes] = useState<Recipe[]>(ALL_RECIPES);
+    const [draggedItem, setDraggedItem] = useState<DraggedItem | null>(null);
+
+    const [showDebugMenu, setShowDebugMenu] = useState(false);
 
     const keysPressed = useRef<{ [key: string]: boolean }>({});
     const joystickVector = useRef({ x: 0, y: 0 });
@@ -192,6 +198,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
     const playerVelocity = useRef({ x: 0, y: 0 });
     const targetRotation = useRef(0);
+    const lockedRotationRef = useRef(0);
     const cameraFollowFactor = useRef(0.2); // For smoothing camera transitions
     
     const cameraPosition = useRef<Position>({ x: 0, y: 0 });
@@ -205,6 +212,9 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const lastTimeRef = useRef<number>(performance.now());
     const frameCountRef = useRef<number>(0);
     
+    const selectedItem = selectedSlot !== null ? inventory[selectedSlot] : null;
+    const canBuild = !!selectedItem && (selectedItem.type === 'stone' || selectedItem.type === 'workbench');
+    
     // --- WebSocket Online Logic ---
     useEffect(() => {
         if (gameMode !== 'online' || !socket) {
@@ -216,78 +226,49 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             try {
                 const data = JSON.parse(event.data);
                 switch (data.type) {
-                    case 'players_update': {
-                        if (!data?.players || !Array.isArray(data.players)) {
-                            console.warn("Received 'players_update' with invalid payload:", data);
-                            break;
-                        }
-
-                        const playersUpdate: any[] = data.players;
-
-                        setRemotePlayers(prev => {
-                            // Create a new state object from the server data
-                            const newPlayersState: { [id: string]: RemotePlayer } = {};
-                            
-                            for (const p of playersUpdate) {
-                                const id = String(p.id);
-                                const existingPlayer = prev[id];
-                                
-                                if (existingPlayer) {
-                                    // Player exists: update target, keep current position for interpolation
-                                    newPlayersState[id] = {
-                                        ...existingPlayer,
-                                        targetPosition: { x: p.x, y: p.y },
-                                        targetRotation: p.rotation,
-                                        nickname: p.nickname,
-                                        health: p.health,
-                                    };
-                                } else {
-                                    // New player: initialize with position set to target
-                                    const pos = { x: p.x, y: p.y };
-                                    newPlayersState[id] = {
-                                        id: id,
-                                        type: 'remote-player',
-                                        position: pos,
-                                        targetPosition: pos,
-                                        rotation: p.rotation,
-                                        targetRotation: p.rotation,
-                                        nickname: p.nickname,
-                                        health: p.health,
-                                    };
-                                }
-                            }
-                            
-                            // By building a new state from scratch, we implicitly handle players who have left,
-                            // as they won't be in `playersUpdate` and thus not in `newPlayersState`.
-                            return newPlayersState;
-                        });
-                        break;
-                    }
-                    case 'PLAYER_JOINED':
-                    case 'player_joined': {
-                        if (data?.player) {
-                            const p = data.player;
+                    case 'init': {
+                        const playersData = data.players || [];
+                        const newRemotePlayers: { [id: string]: RemotePlayer } = {};
+                        for (const p of playersData) {
                             const id = String(p.id);
                             const pos = { x: p.x, y: p.y };
-                            setRemotePlayers(prev => ({
-                                ...prev,
-                                [id]: {
-                                    id: id,
-                                    type: 'remote-player',
-                                    position: pos,
-                                    targetPosition: pos,
-                                    rotation: p.rotation,
-                                    targetRotation: p.rotation,
-                                    nickname: p.nickname,
-                                    health: p.health,
-                                }
-                            }));
-                        } else {
-                            console.warn("Received 'player_joined' with invalid payload:", data);
+                            newRemotePlayers[id] = {
+                                id: id,
+                                type: 'remote-player',
+                                position: pos,
+                                targetPosition: pos,
+                                rotation: p.rotation,
+                                targetRotation: p.rotation,
+                                nickname: p.nickname || `Player_${id.substring(0, 4)}`,
+                                health: p.health || 100,
+                            };
                         }
+                        setRemotePlayers(newRemotePlayers);
                         break;
                     }
-                    case 'PLAYER_LEFT':
+                    case 'player_joined': {
+                        const p = data;
+                        if (!p || !p.id) {
+                            console.warn("Received 'player_joined' with invalid payload:", data);
+                            break;
+                        }
+                        const id = String(p.id);
+                        const pos = { x: p.x, y: p.y };
+                        setRemotePlayers(prev => ({
+                            ...prev,
+                            [id]: {
+                                id: id,
+                                type: 'remote-player',
+                                position: pos,
+                                targetPosition: pos,
+                                rotation: p.rotation,
+                                targetRotation: p.rotation,
+                                nickname: p.nickname || `Player_${id.substring(0, 4)}`,
+                                health: p.health || 100,
+                            }
+                        }));
+                        break;
+                    }
                     case 'player_left': {
                         if (data?.playerId) {
                             setRemotePlayers(prev => {
@@ -300,7 +281,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         }
                         break;
                     }
-                    case 'PLAYER_MOVED':
                     case 'player_moved': {
                         const { playerId, x, y, rotation } = data;
                         if (playerId !== undefined && x !== undefined && y !== undefined && rotation !== undefined) {
@@ -342,14 +322,13 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         if (gameMode !== 'online' || !socket || socket.readyState !== WebSocket.OPEN) return;
 
         const interval = setInterval(() => {
-            const payload = {
+            socket.send(JSON.stringify({
+                type: 'move',
                 x: playerPositionRef.current.x,
                 y: playerPositionRef.current.y,
                 rotation: playerRotationRef.current,
-            };
-            // Note: Add nickname and other details if the server requires them for the 'MOVE' action
-            socket.send(JSON.stringify({ type: 'MOVE', payload }));
-        }, 50); // Send updates 20 times per second
+            }));
+        }, 100); // Send updates 10 times per second
 
         return () => clearInterval(interval);
 
@@ -363,9 +342,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         setGameState(prev => prev === 'inventory' ? 'playing' : 'inventory');
     };
 
-    // Return crafting items to inventory when closing it
+    // Return crafting items to inventory when closing it, and also any dragged item
     useEffect(() => {
         if (gameState !== 'inventory') {
+            handleReturnDraggedItem(); // Return any held item
             const itemsToReturn = craftingInput.filter(Boolean) as InventoryItem[];
             if (itemsToReturn.length > 0) {
                 let currentInventory = [...inventory];
@@ -381,11 +361,35 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-             if (e.key.toLowerCase() === 'e' || e.key.toLowerCase() === 'у') {
+            if (e.key.toLowerCase() === 'p') {
+                e.preventDefault();
+                setShowDebugMenu(prev => !prev);
+                return;
+            }
+
+            if (showDebugMenu) {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setShowDebugMenu(false);
+                }
+                return;
+            }
+
+            // Handle Tab key globally to prevent focus switching, but apply game logic only when playing.
+            if (e.key.toLowerCase() === 'tab') {
+                e.preventDefault(); 
+                if (gameState === 'playing' && !e.repeat && canBuild) {
+                    setLockRotation(true);
+                    lockedRotationRef.current = targetRotation.current;
+                }
+            }
+
+            if (e.key.toLowerCase() === 'e' || e.key.toLowerCase() === 'у') {
                 e.preventDefault();
                 toggleInventory();
                 return;
             }
+
             if (gameState !== 'playing') return;
 
             if (e.key === ' ' && !e.repeat) {
@@ -407,6 +411,9 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 handlePunchEnd();
                 return;
             }
+            if (e.key.toLowerCase() === 'tab') {
+                setLockRotation(false);
+            }
             const key = e.key.toLowerCase();
             keysPressed.current[key] = false;
             if (key === 'ц') keysPressed.current['w'] = false;
@@ -418,17 +425,41 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         const handleBlur = () => { 
             keysPressed.current = {};
             if (isCharging) handlePunchEnd();
+            setLockRotation(false);
+            setShowDebugMenu(false);
+        };
+        
+        const handleWheel = (e: WheelEvent) => {
+            if (gameState === 'playing') {
+                e.preventDefault();
+                const direction = Math.sign(e.deltaY);
+                setSelectedSlot(prev => {
+                    const newSlot = ( (prev ?? 0) + direction + 5) % 5;
+                    return newSlot;
+                });
+            }
+        };
+        
+        const handleContextMenu = (e: MouseEvent) => {
+            if (gameState === 'playing') {
+                e.preventDefault();
+                handlePlaceItem();
+            }
         };
 
         window.addEventListener('keydown', handleKeyDown);
         window.addEventListener('keyup', handleKeyUp);
         window.addEventListener('blur', handleBlur);
+        window.addEventListener('wheel', handleWheel, { passive: false });
+        window.addEventListener('contextmenu', handleContextMenu);
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('keyup', handleKeyUp);
             window.removeEventListener('blur', handleBlur);
+            window.removeEventListener('wheel', handleWheel);
+            window.removeEventListener('contextmenu', handleContextMenu);
         };
-    }, [gameState, isCharging]);
+    }, [gameState, isCharging, canBuild, showDebugMenu]);
     
     // Effect for cleaning up health indicator timeouts on component unmount
     useEffect(() => {
@@ -478,6 +509,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 const joystickMagnitude = Math.sqrt(joystickVector.current.x**2 + joystickVector.current.y**2);
                 const isSprinting = keysPressed.current['shift'] || joystickMagnitude > 0.9;
                 
+                let speedMultiplier = 1.0;
+                if (isSprinting) speedMultiplier = 2.0;
+                if (lockRotation) speedMultiplier = 0.25;
+
                 const rotationSpeed = 0.25;
                 let targetVelX = 0;
                 let targetVelY = 0;
@@ -489,11 +524,12 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         const normalizedX = moveX / magnitude;
                         const normalizedY = moveY / magnitude;
                         
-                        targetRotation.current = Math.atan2(normalizedY, normalizedX) * (180 / Math.PI) + 90;
+                        if (!lockRotation) {
+                           targetRotation.current = Math.atan2(normalizedY, normalizedX) * (180 / Math.PI) + 90;
+                        }
 
-                        const walkSpeed = 2.0;
-                        const sprintSpeed = 4.0;
-                        const speed = isSprinting ? sprintSpeed : walkSpeed;
+                        const baseSpeed = 2.0;
+                        const speed = baseSpeed * speedMultiplier;
 
                         targetVelX = normalizedX * speed;
                         targetVelY = normalizedY * speed;
@@ -513,7 +549,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 }
 
                 setPlayerRotation(prevRotation => {
-                    const newRotation = lerpAngle(prevRotation, targetRotation.current, rotationSpeed);
+                    const finalTargetRotation = lockRotation ? lockedRotationRef.current : targetRotation.current;
+                    const newRotation = lerpAngle(prevRotation, finalTargetRotation, rotationSpeed);
                     playerRotationRef.current = newRotation;
                     return newRotation;
                 });
@@ -550,7 +587,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 setPlayerPosition(currentPosition => {
                     // Camera logic is placed here to get the most up-to-date player position.
                     if (gameContainerRef.current && gameWorldRef.current) {
-                        const zoom = isTouchDevice ? 1.1 : 1.5;
+                        const zoom = isTouchDevice ? 0.9 : 1.7;
                         const viewportWidth = gameContainerRef.current.clientWidth;
                         const viewportHeight = gameContainerRef.current.clientHeight;
     
@@ -627,8 +664,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         return () => {
             if (gameLoopRef.current) cancelAnimationFrame(gameLoopRef.current);
         };
-    }, [gameState, worldObjects, isTouchDevice]);
-
+    }, [gameState, worldObjects, isTouchDevice, lockRotation]);
 
     const handleJoystickMove = (x: number, y: number) => { joystickVector.current = { x, y }; };
 
@@ -850,17 +886,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         punchAvailableTimeRef.current = performance.now() + cooldown;
     };
 
-
-    const handleSlotClick = (e: React.MouseEvent, index: number) => {
-        e.stopPropagation();
-        // Prevent interaction with empty slots in the hotbar
-        if (!inventory[index]) {
-            setSelectedSlot(null);
-            return;
-        }
-        setSelectedSlot(prev => (prev === index ? null : index));
-    };
-
     const handlePlaceItem = () => {
         if (selectedSlot === null || !inventory[selectedSlot]) return;
 
@@ -871,14 +896,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             return;
         }
 
-        const placeDistance = 50;
-        const playerAngleRad = (playerRotationRef.current - 90) * (Math.PI / 180);
-        const playerPos = playerPositionRef.current;
-
-        const newPosition = {
-            x: playerPos.x + Math.cos(playerAngleRad) * placeDistance,
-            y: playerPos.y + Math.sin(playerAngleRad) * placeDistance
-        };
+        const { position: newPosition } = getPlacementPreview();
 
         let newObject: WorldObject;
 
@@ -909,13 +927,12 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
         setInventory(prev => {
             const newInventory = [...prev];
-            const currentItem = newInventory[selectedSlot];
+            const currentItem = newInventory[selectedSlot!];
 
             if (currentItem && currentItem.quantity > 1) {
-                newInventory[selectedSlot] = { ...currentItem, quantity: currentItem.quantity - 1 };
+                newInventory[selectedSlot!] = { ...currentItem, quantity: currentItem.quantity - 1 };
             } else {
-                newInventory[selectedSlot] = undefined;
-                setSelectedSlot(null);
+                newInventory[selectedSlot!] = undefined;
             }
             return newInventory;
         });
@@ -929,17 +946,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
     // --- CRAFTING LOGIC ---
     useEffect(() => {
-        // Filter recipes based on crafting input
-        const inputTypes = new Set(craftingInput.map(item => item?.type).filter(Boolean));
-        if (inputTypes.size === 0) {
-            setFilteredRecipes(ALL_RECIPES);
-        } else {
-            const newFilteredRecipes = ALL_RECIPES.filter(recipe => 
-                recipe.ingredients.some(ingredient => inputTypes.has(ingredient.type))
-            );
-            setFilteredRecipes(newFilteredRecipes);
-        }
-
         // Check for a valid craft
         const inputCounts: { [key in InventoryItemType]?: number } = {};
         for (const item of craftingInput) {
@@ -947,17 +953,25 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 inputCounts[item.type] = (inputCounts[item.type] || 0) + item.quantity;
             }
         }
-        const inputItemCount = Object.keys(inputCounts).length;
-
+        
         let output: InventoryItem | undefined = undefined;
+        // Find a matching recipe
         for (const recipe of ALL_RECIPES) {
-            if (recipe.ingredients.length !== inputItemCount) continue;
-
             let match = true;
+            // Check if all ingredients for the recipe are present in the input
             for (const ingredient of recipe.ingredients) {
-                if (inputCounts[ingredient.type] !== ingredient.quantity) {
+                if (!inputCounts[ingredient.type] || inputCounts[ingredient.type] < ingredient.quantity) {
                     match = false;
                     break;
+                }
+            }
+            // Check if there are no extra items in the input that are not in the recipe
+            if (match) {
+                 for (const inputType in inputCounts) {
+                    if (!recipe.ingredients.some(ing => ing.type === inputType)) {
+                        match = false;
+                        break;
+                    }
                 }
             }
             if (match) {
@@ -969,46 +983,146 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
     }, [craftingInput]);
 
-    const handleInventorySlotClick = (slotIndex: number) => {
-        const itemToMove = inventory[slotIndex];
-        if (!itemToMove) return;
-        const firstEmptyCraftingSlot = craftingInput.findIndex(slot => !slot);
-        if (firstEmptyCraftingSlot === -1) return; // Crafting grid full
+    // --- INVENTORY DRAG & DROP LOGIC ---
 
-        setCraftingInput(prev => {
-            const newCrafting = [...prev];
-            newCrafting[firstEmptyCraftingSlot] = { type: itemToMove.type, quantity: 1 };
-            return newCrafting;
-        });
-        setInventory(prev => {
-            const newInventory = [...prev];
-            const currentItem = newInventory[slotIndex]!;
-            if (currentItem.quantity > 1) {
-                newInventory[slotIndex] = { ...currentItem, quantity: currentItem.quantity - 1 };
-            } else {
-                newInventory[slotIndex] = undefined;
+    const handleSlotClick = (e: React.MouseEvent, index: number, type: 'inventory' | 'crafting' | 'output') => {
+        e.preventDefault();
+        e.stopPropagation();
+    
+        // --- DROP LOGIC ---
+        if (draggedItem) {
+            if (type === 'output') { // Can't drop into output slot
+                return;
             }
-            return newInventory;
-        });
+    
+            const isLMB = e.button === 0;
+            const isRMB = e.button === 2;
+    
+            const targetArray = type === 'inventory' ? [...inventory] : [...craftingInput];
+            const targetSetState = type === 'inventory' ? setInventory : setCraftingInput;
+            const targetItem = targetArray[index];
+            
+            let newDraggedItem: DraggedItem | null = JSON.parse(JSON.stringify(draggedItem));
+    
+            if (isLMB) { // Full drop / swap
+                if (targetItem && targetItem.type === newDraggedItem.item.type) {
+                    // Stack with existing
+                    targetItem.quantity += newDraggedItem.item.quantity;
+                    newDraggedItem = null;
+                } else {
+                    // Swap
+                    targetArray[index] = newDraggedItem.item;
+                    newDraggedItem = targetItem ? { ...newDraggedItem, item: targetItem } : null;
+                }
+            } else if (isRMB) { // Single item drop
+                if (!targetItem) {
+                    targetArray[index] = { type: newDraggedItem.item.type, quantity: 1 };
+                    newDraggedItem.item.quantity--;
+                } else if (targetItem.type === newDraggedItem.item.type) {
+                    targetItem.quantity++;
+                    newDraggedItem.item.quantity--;
+                }
+                if (newDraggedItem.item.quantity <= 0) {
+                    newDraggedItem = null;
+                }
+            }
+            
+            setDraggedItem(newDraggedItem);
+            targetSetState(targetArray);
+            return;
+        }
+    
+        // --- PICKUP LOGIC ---
+        if (!draggedItem) {
+            const isLMB = e.button === 0;
+            const isRMB = e.button === 2;
+            
+            let itemToPick: InventoryItem | undefined;
+            let sourceArray: (InventoryItem | undefined)[] | null = null;
+            let sourceSetState: Function | null = null;
+            
+            if (type === 'inventory') {
+                itemToPick = inventory[index];
+                sourceArray = [...inventory];
+                sourceSetState = setInventory;
+            } else if (type === 'crafting') {
+                itemToPick = craftingInput[index];
+                sourceArray = [...craftingInput];
+                sourceSetState = setCraftingInput;
+            } else if (type === 'output') {
+                itemToPick = craftingOutput;
+            }
+    
+            if (!itemToPick || (!isLMB && !isRMB)) return;
+    
+            let itemForDrag: InventoryItem;
+            let remainingQuantity = 0;
+    
+            if (isLMB) {
+                itemForDrag = { ...itemToPick };
+            } else { // isRMB
+                const half = Math.ceil(itemToPick.quantity / 2);
+                itemForDrag = { type: itemToPick.type, quantity: half };
+                remainingQuantity = itemToPick.quantity - half;
+            }
+    
+            setDraggedItem({ item: itemForDrag, source: { index, type } });
+    
+            if (sourceArray && sourceSetState) {
+                sourceArray[index] = remainingQuantity > 0 ? { ...itemToPick, quantity: remainingQuantity } : undefined;
+                sourceSetState(sourceArray);
+            } else if (type === 'output') {
+                setDraggedItem({ item: { ...itemToPick }, source: { index, type } });
+                setCraftingInput(Array(4).fill(undefined));
+            }
+        }
     };
 
-    const handleCraftingSlotClick = (slotIndex: number) => {
-        const itemToReturn = craftingInput[slotIndex];
-        if (!itemToReturn) return;
+    const handleReturnDraggedItem = () => {
+        if (!draggedItem) return;
 
-        setInventory(prev => addToInventory(itemToReturn.type, itemToReturn.quantity, prev));
-        setCraftingInput(prev => {
-            const newCrafting = [...prev];
-            newCrafting[slotIndex] = undefined;
-            return newCrafting;
-        });
+        const { item, source } = draggedItem;
+        
+        if (source.type === 'inventory') {
+            const newInv = [...inventory];
+            const existingItem = newInv[source.index];
+            newInv[source.index] = existingItem ? { ...existingItem, quantity: existingItem.quantity + item.quantity } : item;
+            setInventory(newInv);
+        } else if (source.type === 'crafting') {
+            const newCrafting = [...craftingInput];
+            const existingItem = newCrafting[source.index];
+            newCrafting[source.index] = existingItem ? { ...existingItem, quantity: existingItem.quantity + item.quantity } : item;
+            setCraftingInput(newCrafting);
+        }
+        // If from output, it just disappears (as ingredients were already consumed). This matches Minecraft behavior.
+        
+        setDraggedItem(null);
     };
 
-    const handleTakeOutput = () => {
-        if (!craftingOutput) return;
-        setInventory(prev => addToInventory(craftingOutput.type, craftingOutput.quantity, prev));
-        setCraftingInput(Array(4).fill(undefined));
-        // Output will be cleared by the useEffect hook
+    const handleGiveItemDebug = (itemType: InventoryItemType, quantity: number) => {
+        setInventory(prev => addToInventory(itemType, quantity, prev));
+    };
+
+    const handleSpawnObjectDebug = (objectType: WorldObject['type']) => {
+        const angle = Math.random() * 2 * Math.PI;
+        const distance = 60 + Math.random() * 50;
+        const spawnPos = {
+            x: playerPositionRef.current.x + Math.cos(angle) * distance,
+            y: playerPositionRef.current.y + Math.sin(angle) * distance,
+        };
+
+        let newObject: WorldObject | null = null;
+        if (objectType === 'tree') {
+            newObject = { id: nextObjectId.current++, type: 'tree', position: spawnPos, health: 70, maxHealth: 70, emoji: '🌳', size: 6, hitbox: TREE_HITBOX };
+        } else if (objectType === 'rock') {
+            newObject = { id: nextObjectId.current++, type: 'rock', position: spawnPos, health: 150, maxHealth: 150, emoji: '🪨', size: 4, hitbox: ROCK_HITBOX };
+        } else if (objectType === 'workbench') {
+            newObject = { id: nextObjectId.current++, type: 'workbench', position: spawnPos, health: 30, maxHealth: 30, emoji: '🛠️', size: 4, hitbox: WORKBENCH_HITBOX };
+        }
+
+        if (newObject) {
+            setWorldObjects(prev => [...prev, newObject]);
+        }
     };
 
     const getLayoutStyles = (layout: typeof settings.layouts.joystick): React.CSSProperties => ({
@@ -1057,21 +1171,41 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     
     const hotbarItems = inventory.slice(0, 5);
 
-    const selectedItem = selectedSlot !== null ? inventory[selectedSlot] : null;
-    const canBuild = !!selectedItem && (selectedItem.type === 'stone' || selectedItem.type === 'workbench');
+    const getPlacementPreview = () => {
+        const placeDistance = 50;
+        const playerAngleRad = (playerRotationRef.current - 90) * (Math.PI / 180);
+        const playerPos = playerPositionRef.current;
+        const position = {
+            x: playerPos.x + Math.cos(playerAngleRad) * placeDistance,
+            y: playerPos.y + Math.sin(playerAngleRad) * placeDistance
+        };
+        const rotation = playerRotationRef.current;
+        return { position, rotation };
+    };
+
+    const placementPreview = canBuild ? getPlacementPreview() : null;
 
     return (
         <div ref={gameContainerRef} className={`relative w-full h-full bg-green-400 overflow-hidden select-none ${critShake ? 'animate-screen-shake' : ''}`}>
             <div ref={gameWorldRef} style={{ willChange: 'transform' }}>
+                {placementPreview && selectedItem && (
+                    <div
+                        className="absolute select-none opacity-35"
+                        style={{
+                            left: placementPreview.position.x,
+                            top: placementPreview.position.y,
+                            fontSize: `${selectedItem.type === 'stone' ? 4 : 4}rem`,
+                            transform: 'translate(-50%, -50%)',
+                            lineHeight: 1
+                        }}
+                    >
+                        {selectedItem.type === 'stone' ? '🪨' : '🛠️'}
+                    </div>
+                )}
                 {renderableEntities.map(entity => {
                     if (entity.type === 'player') {
                          return (
                             <div key="player" style={{ position: 'absolute', left: entity.position.x, top: entity.position.y }}>
-                                {/* Logic for indicators */}
-                                {selectedSlot !== null && (
-                                    <InteractionIndicator rotation={playerRotation} type="build" />
-                                )}
-                                
                                 {/* Show charging indicator AND punch animation simultaneously */}
                                 {isCharging && (
                                     <InteractionIndicator
@@ -1088,7 +1222,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                     />
                                 )}
     
-                                {settings.showPunchHitbox && selectedSlot === null && !isCharging && !showPunchIndicator.isVisible && (
+                                {settings.showPunchHitbox && !isCharging && !showPunchIndicator.isVisible && (
                                     <InteractionIndicator rotation={playerRotation} type="punch" isDebug />
                                 )}
                                 <Player rotation={playerRotation} />
@@ -1159,70 +1293,80 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 
                 {settings.showFps && <div className="absolute top-4 left-4 bg-black/50 text-white p-2 rounded-md z-10 pointer-events-auto">FPS: {fps}</div>}
                 
-                <div 
-                    style={{ ...hotbarStyle, backgroundColor: hotbarLayout.backgroundColor }}
-                    className={`flex items-end gap-2 p-2 rounded-lg z-10 pointer-events-auto ${hotbarFlexDirection}`}
-                >
-                    {hotbarItems.map((item, i) => (
-                        <div
-                            key={i}
-                            onClick={(e) => handleSlotClick(e, i)}
-                            style={hotbarSlotStyle}
-                            className={`relative bg-black/30 border-2 rounded-md flex items-center justify-center transition-all cursor-pointer ${selectedSlot === i ? 'border-yellow-400 scale-110' : 'border-gray-500'}`}
+                {hotbarLayout.visible !== false && (
+                    <div 
+                        style={{ ...hotbarStyle, backgroundColor: hotbarLayout.backgroundColor }}
+                        className={`flex items-end gap-2 p-2 rounded-lg z-10 pointer-events-auto ${hotbarFlexDirection}`}
+                    >
+                        {hotbarItems.map((item, i) => (
+                            <div
+                                key={i}
+                                onClick={() => setSelectedSlot(i)}
+                                style={hotbarSlotStyle}
+                                className={`relative bg-black/30 border-2 rounded-md flex items-center justify-center transition-all cursor-pointer ${selectedSlot === i ? 'border-yellow-400 scale-110' : 'border-gray-500'}`}
+                            >
+                                {item && (
+                                    <>
+                                        <ItemIcon 
+                                            type={item.type} 
+                                            className={item.type === 'stone' ? '' : 'w-full h-full p-1.5'}
+                                        />
+                                        <span className="absolute bottom-0 right-1 text-white text-lg font-bold" style={{ textShadow: '1px 1px 2px black', fontSize: `${settings.inventorySize * 0.25}px` }}>
+                                            {item.quantity}
+                                        </span>
+                                    </>
+                                )}
+                            </div>
+                        ))}
+                        <button
+                            onClick={toggleInventory}
+                            style={hotbarBagStyle}
+                            aria-label="Открыть инвентарь"
+                            className="bg-black/30 border-2 border-gray-500 rounded-md flex items-center justify-center transition-all hover:border-gray-400 active:scale-95"
                         >
-                            {item && (
-                                <>
-                                    <ItemIcon 
-                                        type={item.type} 
-                                        className={item.type === 'stone' ? '' : 'w-full h-full p-1.5'}
-                                    />
-                                    <span className="absolute bottom-0 right-1 text-white text-lg font-bold" style={{ textShadow: '1px 1px 2px black', fontSize: `${settings.inventorySize * 0.25}px` }}>
-                                        {item.quantity}
-                                    </span>
-                                </>
-                            )}
-                        </div>
-                    ))}
-                    <button
-                        onClick={toggleInventory}
-                        style={hotbarBagStyle}
-                        aria-label="Открыть инвентарь"
-                        className="bg-black/30 border-2 border-gray-500 rounded-md flex items-center justify-center transition-all hover:border-gray-400 active:scale-95"
-                    >
-                       🎒
-                    </button>
-                </div>
+                           🎒
+                        </button>
+                    </div>
+                )}
 
 
-                <div style={punchButtonStyle} className="z-10 pointer-events-auto">
-                    <button 
-                        onMouseDown={(e) => handleActionPress(e, handlePunchStart)}
-                        onTouchStart={(e) => handleActionPress(e, handlePunchStart)}
-                        onMouseUp={(e) => handleActionPress(e, handlePunchEnd)}
-                        onTouchEnd={(e) => handleActionPress(e, handlePunchEnd)}
-                        onMouseLeave={(e) => { if(isCharging) handleActionPress(e, handlePunchEnd)} }
-                        onTouchCancel={(e) => { if(isCharging) handleActionPress(e, handlePunchEnd)} }
-                        style={actionButtonStyle}
-                        className={`bg-red-500/80 flex items-center justify-center text-white font-bold border-2 border-red-800 active:bg-red-600 touch-none ${punchButtonShapeClass}`}
-                    >
-                        Бить{!isTouchDevice && ' (Пробел)'}
-                    </button>
-                </div>
-                <div style={buildButtonStyle} className="z-10 pointer-events-auto">
-                    <button 
-                        onMouseDown={(e) => handleActionPress(e, handlePlaceItem)}
-                        onTouchStart={(e) => handleActionPress(e, handlePlaceItem)}
-                        disabled={!canBuild}
-                        style={actionButtonStyle}
-                        className={`bg-yellow-500/80 flex items-center justify-center text-white font-bold border-2 border-yellow-800 active:bg-yellow-600 disabled:bg-gray-600/80 disabled:border-gray-800 disabled:cursor-not-allowed ${buildButtonShapeClass}`}
-                    >
-                        Строить
-                    </button>
-                </div>
+                {punchButtonLayout.visible !== false && (
+                    <div style={punchButtonStyle} className="z-10 pointer-events-auto">
+                        <button 
+                            onMouseDown={(e) => handleActionPress(e, handlePunchStart)}
+                            onTouchStart={(e) => handleActionPress(e, handlePunchStart)}
+                            onMouseUp={(e) => handleActionPress(e, handlePunchEnd)}
+                            onTouchEnd={(e) => handleActionPress(e, handlePunchEnd)}
+                            onMouseLeave={(e) => { if(isCharging) handleActionPress(e, handlePunchEnd)} }
+                            onTouchCancel={(e) => { if(isCharging) handleActionPress(e, handlePunchEnd)} }
+                            style={actionButtonStyle}
+                            className={`bg-red-500/80 flex items-center justify-center text-white font-bold border-2 border-red-800 active:bg-red-600 touch-none ${punchButtonShapeClass}`}
+                        >
+                            Бить{!isTouchDevice && ' (Пробел)'}
+                        </button>
+                    </div>
+                )}
+                
+                {buildButtonLayout.visible !== false && (isTouchDevice || !isTouchDevice) && ( // Build button logic for PC is now context menu, but keep button for touch
+                    <div style={buildButtonStyle} className={`z-10 pointer-events-auto ${isTouchDevice ? '' : 'hidden'}`}>
+                        <button 
+                            onMouseDown={(e) => handleActionPress(e, handlePlaceItem)}
+                            onTouchStart={(e) => handleActionPress(e, handlePlaceItem)}
+                            disabled={!canBuild}
+                            style={actionButtonStyle}
+                            className={`bg-yellow-500/80 flex items-center justify-center text-white font-bold border-2 border-yellow-800 active:bg-yellow-600 disabled:bg-gray-600/80 disabled:border-gray-800 disabled:cursor-not-allowed ${buildButtonShapeClass}`}
+                        >
+                            Строить
+                        </button>
+                    </div>
+                )}
 
-                <div style={joystickStyle} className="z-10 pointer-events-auto">
-                    <Joystick onMove={handleJoystickMove} size={settings.joystickSize} />
-                </div>
+
+                {joystickLayout.visible !== false && (
+                    <div style={joystickStyle} className="z-10 pointer-events-auto">
+                        <Joystick onMove={handleJoystickMove} size={settings.joystickSize} />
+                    </div>
+                )}
             </div>
             
             {gameState === 'paused' && (
@@ -1243,11 +1387,19 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     onClose={toggleInventory}
                     craftingInput={craftingInput}
                     craftingOutput={craftingOutput}
-                    filteredRecipes={filteredRecipes}
-                    onInventorySlotClick={handleInventorySlotClick}
-                    onCraftingSlotClick={handleCraftingSlotClick}
-                    onTakeOutput={handleTakeOutput}
+                    allRecipes={ALL_RECIPES}
                     settings={settings}
+                    draggedItem={draggedItem}
+                    onSlotClick={handleSlotClick}
+                    onReturnDraggedItem={handleReturnDraggedItem}
+                />
+            )}
+
+            {showDebugMenu && (
+                <DebugMenu
+                    onClose={() => setShowDebugMenu(false)}
+                    onGiveItem={handleGiveItemDebug}
+                    onSpawnObject={handleSpawnObjectDebug}
                 />
             )}
         </div>
