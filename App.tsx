@@ -97,27 +97,19 @@ const App: React.FC = () => {
                     pongTimeoutRef.current = null;
                 }
             } else if (data.type === 'init') {
-                console.log("Received init from server, my ID:", data.playerId);
+                console.log("Received init from server, my ID:", data.playerId, "final nickname:", data.nickname);
 
-                const myProposedNickname = nickname.trim() || `Guest${Math.floor(Math.random() * 10000)}`;
-                let uniqueNickname = myProposedNickname;
-                const otherPlayers: RemotePlayer[] = data.players || [];
-                const isCollision = otherPlayers.some(p => p.nickname === myProposedNickname);
-
-                if (isCollision) {
-                    uniqueNickname = `${myProposedNickname}_${data.playerId.slice(0, 4)}`;
-                    console.warn(`Nickname collision detected. Changing name to ${uniqueNickname}`);
-                }
-                
-                setFinalNickname(uniqueNickname);
+                // The server is now the authority for the nickname.
+                // No more client-side collision checks needed.
+                setFinalNickname(data.nickname);
                 setPlayerId(data.playerId);
-                setInitialPlayers(otherPlayers);
+                setInitialPlayers(data.players || []);
                 setGameMode('online');
                 setGameState('playing');
                 setConnectionError(null);
             }
         } catch (e) { /* ignore non-json messages */ }
-    }, [nickname]);
+    }, []);
     
     const cleanupConnection = useCallback(() => {
         if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
@@ -167,7 +159,11 @@ const App: React.FC = () => {
             reconnectAttemptsRef.current = 0;
             setSocket(newSocket);
             startPing();
-            // The server will now send an 'init' message, which is handled in handleAppMessages.
+            
+            // Propose nickname to server immediately. The server is now authoritative.
+            const myProposedNickname = nickname.trim() || `Guest${Math.floor(Math.random() * 10000)}`;
+            newSocket.send(JSON.stringify({ type: 'set_nickname', nickname: myProposedNickname }));
+            // The server will now respond with an 'init' message containing the final nickname.
         };
     
         newSocket.addEventListener('message', handleAppMessages);
@@ -205,7 +201,7 @@ const App: React.FC = () => {
             }
             // The onclose event will fire after onerror, triggering reconnection logic.
         };
-    }, [handleAppMessages, gameState]);
+    }, [handleAppMessages, gameState, nickname]);
 
     const handlePlayClick = useCallback(() => {
         setGameState('mode-select');
