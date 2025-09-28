@@ -1,4 +1,5 @@
 
+
 export type Position = { x: number; y: number };
 
 export type WorldObject = {
@@ -28,6 +29,7 @@ export type RemotePlayer = {
   targetRotation: number; // For smooth interpolation
   nickname: string;
   health: number;
+  lastUpdateTime: number;
 };
 
 export type GameEntity = WorldObject | Player | RemotePlayer;

@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import Joystick from './Joystick';
 import Player from './Player';
@@ -220,9 +221,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     
     useEffect(() => {
         if (gameMode === 'online' && !playersInitialized.current && initialPlayers.length > 0) {
+            const now = performance.now();
             const newRemotePlayers: { [id: string]: RemotePlayer } = {};
             for (const p of initialPlayers) {
-                const id = String(p.id);
+                const id = String(p.id).trim();
                 if (id === playerId) continue; // Filter out self
                 const pos = { x: p.x, y: p.y };
                 newRemotePlayers[id] = {
@@ -234,6 +236,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     targetRotation: p.rotation,
                     nickname: p.nickname || `Player_${id.substring(0, 4)}`,
                     health: p.health || 100,
+                    lastUpdateTime: now,
                 };
             }
             setRemotePlayers(newRemotePlayers);
@@ -252,6 +255,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         const handleMessage = (event: MessageEvent) => {
             try {
                 const data = JSON.parse(event.data);
+                const now = performance.now();
                 switch (data.type) {
                     case 'players_update': {
                         const playersUpdate = data.players;
@@ -263,22 +267,21 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                             const newPlayersState: { [id: string]: RemotePlayer } = {};
                             
                             for (const p of playersUpdate) {
-                                const id = String(p.id);
-                                if (id === playerId) continue; // Don't add self to remote players
+                                const id = String(p.id).trim();
+                                if (id === playerId || p.x === undefined || p.y === undefined) continue;
                     
                                 const existingPlayer = prev[id];
                                 
                                 if (existingPlayer) {
-                                    // Player exists: update target, keep current position for interpolation
                                     newPlayersState[id] = {
                                         ...existingPlayer,
                                         targetPosition: { x: p.x, y: p.y },
                                         targetRotation: p.rotation,
                                         nickname: p.nickname || existingPlayer.nickname,
                                         health: p.health || existingPlayer.health,
+                                        lastUpdateTime: now,
                                     };
                                 } else {
-                                    // New player: initialize with position set to target
                                     const pos = { x: p.x, y: p.y };
                                     newPlayersState[id] = {
                                         id: id,
@@ -289,6 +292,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                         targetRotation: p.rotation,
                                         nickname: p.nickname || `Player_${id.substring(0, 4)}`,
                                         health: p.health || 100,
+                                        lastUpdateTime: now,
                                     };
                                 }
                             }
@@ -297,11 +301,11 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         break;
                     }
                     case 'player_joined': {
-                        const p = data.player; // Assuming payload is { type: 'player_joined', player: {...} }
-                        if (!p || !p.id || p.id === playerId) {
+                        const p = data.player;
+                        if (!p || !p.id || p.id === playerId || p.x === undefined || p.y === undefined) {
                             break;
                         }
-                        const id = String(p.id);
+                        const id = String(p.id).trim();
                         const pos = { x: p.x, y: p.y };
                         setRemotePlayers(prev => ({
                             ...prev,
@@ -314,6 +318,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                 targetRotation: p.rotation,
                                 nickname: p.nickname || `Player_${id.substring(0, 4)}`,
                                 health: p.health || 100,
+                                lastUpdateTime: now,
                             }
                         }));
                         break;
@@ -322,7 +327,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         if (data?.playerId) {
                             setRemotePlayers(prev => {
                                 const newPlayers = { ...prev };
-                                delete newPlayers[String(data.playerId)];
+                                delete newPlayers[String(data.playerId).trim()];
                                 return newPlayers;
                             });
                         }
@@ -331,10 +336,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     case 'player_moved': {
                         const { playerId: movedPlayerId, x, y, rotation, nickname: remoteNickname } = data;
                         if (movedPlayerId === undefined || movedPlayerId === playerId) {
-                            return; // Ignore if no ID or it's our own echo
+                            return;
                         }
                         
-                        const id = String(movedPlayerId);
+                        const id = String(movedPlayerId).trim();
                         setRemotePlayers(prev => {
                             if (!prev[id]) {
                                 return prev;
@@ -345,6 +350,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                 targetPosition: { x, y },
                                 targetRotation: rotation,
                                 nickname: remoteNickname || prev[id].nickname,
+                                lastUpdateTime: now,
                             };
 
                             return {
@@ -366,7 +372,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             socket.removeEventListener('message', handleMessage);
         };
     }, [gameMode, socket, playerId]);
-    
+
     // Throttled update sender to server
     useEffect(() => {
         if (gameMode !== 'online' || !socket || socket.readyState !== WebSocket.OPEN) return;
@@ -384,6 +390,36 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         return () => clearInterval(interval);
 
     }, [gameMode, socket, nickname]);
+
+    // New effect for cleaning up stale players
+    useEffect(() => {
+        if (gameMode !== 'online') return;
+
+        const STALE_TIMEOUT_MS = 10000; // 10 seconds
+        const CLEANUP_INTERVAL_MS = 5000; // Check every 5 seconds
+
+        const cleanupInterval = setInterval(() => {
+            const now = performance.now();
+            setRemotePlayers(prev => {
+                const newPlayersState: { [id: string]: RemotePlayer } = {};
+                let hasChanged = false;
+
+                for (const id in prev) {
+                    const player = prev[id];
+                    if (now - player.lastUpdateTime < STALE_TIMEOUT_MS) {
+                        newPlayersState[id] = player;
+                    } else {
+                        console.log(`Auto-cleaning stale player due to timeout: ${player.nickname} (${id})`);
+                        hasChanged = true;
+                    }
+                }
+
+                return hasChanged ? newPlayersState : prev;
+            });
+        }, CLEANUP_INTERVAL_MS);
+
+        return () => clearInterval(cleanupInterval);
+    }, [gameMode]);
 
 
     const handlePause = () => setGameState('paused');

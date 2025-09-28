@@ -216,6 +216,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         const handleMessage = (event: MessageEvent) => {
             try {
                 const data = JSON.parse(event.data);
+                // FIX: Add a timestamp for all updates to use.
+                const now = performance.now();
                 switch (data.type) {
                     case 'players_update': {
                         if (!data?.players || !Array.isArray(data.players)) {
@@ -241,6 +243,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                         targetRotation: p.rotation,
                                         nickname: p.nickname,
                                         health: p.health,
+                                        // FIX: Add missing lastUpdateTime property
+                                        lastUpdateTime: now,
                                     };
                                 } else {
                                     // New player: initialize with position set to target
@@ -254,6 +258,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                         targetRotation: p.rotation,
                                         nickname: p.nickname,
                                         health: p.health,
+                                        // FIX: Add missing lastUpdateTime property
+                                        lastUpdateTime: now,
                                     };
                                 }
                             }
@@ -281,6 +287,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                     targetRotation: p.rotation,
                                     nickname: p.nickname,
                                     health: p.health,
+                                    // FIX: Add missing lastUpdateTime property
+                                    lastUpdateTime: now,
                                 }
                             }));
                         } else {
@@ -315,6 +323,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                             ...player,
                                             targetPosition: { x, y },
                                             targetRotation: rotation,
+                                            // FIX: Add missing lastUpdateTime property
+                                            lastUpdateTime: now,
                                         }
                                     };
                                 }
