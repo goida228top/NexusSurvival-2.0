@@ -328,7 +328,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 y: playerPositionRef.current.y,
                 rotation: playerRotationRef.current,
             }));
-        }, 100); // Send updates 10 times per second
+        }, 100);
 
         return () => clearInterval(interval);
 

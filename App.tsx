@@ -48,7 +48,9 @@ const App: React.FC = () => {
     const [gameMode, setGameMode] = useState<GameMode>('offline');
     const [socket, setSocket] = useState<WebSocket | null>(null);
     const [connectionError, setConnectionError] = useState<string | null>(null);
-    const [serverIp, setServerIp] = useState('localhost:3000');
+    const [serverAddress, setServerAddress] = useState('localhost');
+    const [serverPort, setServerPort] = useState('3000');
+    const [serverPath, setServerPath] = useState('/websocket');
 
 
     const [settings, setSettings] = useState<GameSettings>(() => {
@@ -101,14 +103,16 @@ const App: React.FC = () => {
     }, [cleanupConnection]);
 
     const handleConnectClick = useCallback(() => {
-        if (!serverIp) {
-            setConnectionError('Пожалуйста, введите IP-адрес сервера.');
+        if (!serverAddress || !serverPort) {
+            setConnectionError('Пожалуйста, введите адрес и порт сервера.');
             return;
         }
         setGameState('connecting');
         setConnectionError(null);
+
+        const url = `wss://${serverAddress}:${serverPort}${serverPath.startsWith('/') ? serverPath : '/' + serverPath}`;
     
-        const newSocket = new WebSocket(`ws://${serverIp}`);
+        const newSocket = new WebSocket(url);
     
         newSocket.onopen = () => {
             console.log('WebSocket connection established.');
@@ -130,11 +134,11 @@ const App: React.FC = () => {
     
         newSocket.onerror = (error) => {
             console.error('WebSocket error:', error);
-            setConnectionError('Не удалось подключиться к серверу. Проверьте IP-адрес и убедитесь, что сервер запущен.');
+            setConnectionError('Не удалось подключиться к серверу. Проверьте адрес, порт, путь и убедитесь, что сервер запущен.');
             setSocket(null);
             setGameState('mode-select');
         };
-    }, [serverIp]);
+    }, [serverAddress, serverPort, serverPath]);
     
     const handleBackToMenu = useCallback(() => {
         cleanupConnection();
@@ -198,17 +202,40 @@ const App: React.FC = () => {
                             >
                                 Офлайн
                             </button>
-                            <div className="flex flex-col gap-2 items-center p-4 bg-gray-900/50 rounded-lg">
-                                <input
-                                    type="text"
-                                    value={serverIp}
-                                    onChange={(e) => setServerIp(e.target.value)}
-                                    placeholder="IP Сервера"
-                                    className="px-4 py-3 bg-gray-800 text-white rounded-lg text-lg w-full sm:w-80 text-center placeholder-gray-500 border-2 border-gray-700 focus:border-purple-500 focus:outline-none"
-                                />
+                            <div className="flex flex-col gap-2 items-center p-4 bg-gray-900/50 rounded-lg w-full max-w-sm">
+                                <div className="w-full">
+                                    <label htmlFor="server-address" className="text-sm text-gray-400">Адрес сервера</label>
+                                    <input
+                                        id="server-address"
+                                        type="text"
+                                        value={serverAddress}
+                                        onChange={(e) => setServerAddress(e.target.value)}
+                                        className="px-4 py-3 bg-gray-800 text-white rounded-lg text-lg w-full text-center placeholder-gray-500 border-2 border-gray-700 focus:border-purple-500 focus:outline-none"
+                                    />
+                                </div>
+                                <div className="w-full">
+                                     <label htmlFor="server-port" className="text-sm text-gray-400">Порт</label>
+                                    <input
+                                        id="server-port"
+                                        type="text"
+                                        value={serverPort}
+                                        onChange={(e) => setServerPort(e.target.value)}
+                                        className="px-4 py-3 bg-gray-800 text-white rounded-lg text-lg w-full text-center placeholder-gray-500 border-2 border-gray-700 focus:border-purple-500 focus:outline-none"
+                                    />
+                                </div>
+                                <div className="w-full">
+                                     <label htmlFor="server-path" className="text-sm text-gray-400">Путь WebSocket</label>
+                                    <input
+                                        id="server-path"
+                                        type="text"
+                                        value={serverPath}
+                                        onChange={(e) => setServerPath(e.target.value)}
+                                        className="px-4 py-3 bg-gray-800 text-white rounded-lg text-lg w-full text-center placeholder-gray-500 border-2 border-gray-700 focus:border-purple-500 focus:outline-none"
+                                    />
+                                </div>
                                 <button
                                     onClick={handleConnectClick}
-                                    className="w-full px-8 py-4 bg-purple-600 text-white font-bold rounded-lg text-2xl hover:bg-purple-700 transition-colors"
+                                    className="w-full mt-2 px-8 py-4 bg-purple-600 text-white font-bold rounded-lg text-2xl hover:bg-purple-700 transition-colors"
                                 >
                                     Подключиться
                                 </button>
@@ -225,7 +252,7 @@ const App: React.FC = () => {
             case 'connecting':
                  return (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-black">
-                        <p className="text-2xl animate-pulse">Подключение к {serverIp}...</p>
+                        <p className="text-2xl animate-pulse">Подключение к wss://{serverAddress}:{serverPort}{serverPath}...</p>
                         <button
                             onClick={handleBackToModeSelect}
                             className="mt-8 px-6 py-2 bg-red-600 text-white font-bold rounded-lg text-lg hover:bg-red-700 transition-colors"
