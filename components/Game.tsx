@@ -15,6 +15,7 @@ interface GameProps {
     settings: GameSettings;
     gameMode: GameMode;
     socket: WebSocket | null;
+    playerId: string | null;
     onBackToMenu: () => void;
 }
 
@@ -154,7 +155,7 @@ const lerpAngle = (start: number, end: number, amt: number) => {
     return value % 360;
 }
 
-const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, socket, onBackToMenu }) => {
+const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, socket, playerId, onBackToMenu }) => {
     const { useState, useEffect, useRef } = React;
     const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
     const [playerPosition, setPlayerPosition] = useState<Position>({ x: 100, y: 100 });
@@ -204,7 +205,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const cameraPosition = useRef<Position>({ x: 0, y: 0 });
     const gameContainerRef = useRef<HTMLDivElement>(null);
     const gameWorldRef = useRef<HTMLDivElement>(null);
-    // FIX: Explicitly type the ref to avoid type inference issues with `useRef`'s initial value.
     const healthIndicatorsRef = useRef<{ [id: number]: HealthIndicatorInfo }>(healthIndicators);
     healthIndicatorsRef.current = healthIndicators;
 
@@ -231,6 +231,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         const newRemotePlayers: { [id: string]: RemotePlayer } = {};
                         for (const p of playersData) {
                             const id = String(p.id);
+                            if (id === playerId) continue; // Filter out self
                             const pos = { x: p.x, y: p.y };
                             newRemotePlayers[id] = {
                                 id: id,
@@ -247,9 +248,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         break;
                     }
                     case 'player_joined': {
-                        const p = data;
-                        if (!p || !p.id) {
-                            console.warn("Received 'player_joined' with invalid payload:", data);
+                        const p = data.player; // Assuming payload is { type: 'player_joined', player: {...} }
+                        if (!p || !p.id || p.id === playerId) {
                             break;
                         }
                         const id = String(p.id);
@@ -276,15 +276,13 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                 delete newPlayers[String(data.playerId)];
                                 return newPlayers;
                             });
-                        } else {
-                            console.warn("Received 'player_left' with invalid payload:", data);
                         }
                         break;
                     }
                     case 'player_moved': {
-                        const { playerId, x, y, rotation } = data;
-                        if (playerId !== undefined && x !== undefined && y !== undefined && rotation !== undefined) {
-                             const id = String(playerId);
+                        const { playerId: movedPlayerId, x, y, rotation } = data;
+                        if (movedPlayerId !== undefined && movedPlayerId !== playerId) {
+                             const id = String(movedPlayerId);
                              setRemotePlayers(prev => {
                                 const player = prev[id];
                                 if (player) {
@@ -296,11 +294,25 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                             targetRotation: rotation,
                                         }
                                     };
+                                } else {
+                                     // Player might not be known yet, server should send player_joined first.
+                                     // For now, we can add them to handle cases where messages arrive out of order.
+                                    const pos = { x, y };
+                                    return {
+                                        ...prev,
+                                        [id]: {
+                                            id: id,
+                                            type: 'remote-player',
+                                            position: pos,
+                                            targetPosition: pos,
+                                            rotation: rotation,
+                                            targetRotation: rotation,
+                                            nickname: `Player_${id.substring(0, 4)}`,
+                                            health: 100,
+                                        }
+                                    };
                                 }
-                                return prev; // Player not found, 'player_joined' might be in flight
                             });
-                        } else {
-                             console.warn("Received 'player_moved' with invalid payload:", data);
                         }
                         break;
                     }
@@ -315,7 +327,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         return () => {
             socket.removeEventListener('message', handleMessage);
         };
-    }, [gameMode, socket]);
+    }, [gameMode, socket, playerId]);
     
     // Throttled update sender to server
     useEffect(() => {
@@ -464,7 +476,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     // Effect for cleaning up health indicator timeouts on component unmount
     useEffect(() => {
         return () => {
-            // FIX: Use Object.keys to iterate, as Object.values was causing incorrect type inference.
             Object.keys(healthIndicatorsRef.current).forEach(id => {
                 const indicator = healthIndicatorsRef.current[Number(id)];
                 if (indicator) {
@@ -585,7 +596,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 });
 
                 setPlayerPosition(currentPosition => {
-                    // Camera logic is placed here to get the most up-to-date player position.
                     if (gameContainerRef.current && gameWorldRef.current) {
                         const zoom = isTouchDevice ? 0.9 : 1.7;
                         const viewportWidth = gameContainerRef.current.clientWidth;
@@ -594,19 +604,13 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         const targetCameraX = currentPosition.x - (viewportWidth / zoom) / 2;
                         const targetCameraY = currentPosition.y - (viewportHeight / zoom) / 2;
                         
-                        // The camera lags more when sprinting and keeps up when walking.
-                        // We smoothly transition the follow factor to avoid sudden camera speed changes.
-                        const walkCameraFactor = 0.2;    // High value: Keeps up well when walking.
-                        const sprintCameraFactor = 0.05; // Low value: Lags behind when sprinting.
+                        const walkCameraFactor = 0.2;
+                        const sprintCameraFactor = 0.05;
                         
-                        // Determine the target camera speed based on player state.
                         const targetCameraFollowFactor = isSprinting ? sprintCameraFactor : walkCameraFactor;
 
-                        // Smoothly interpolate the actual camera follow factor towards the target.
-                        // A lower value here makes the transition back to center much slower and smoother.
                         cameraFollowFactor.current = lerp(cameraFollowFactor.current, targetCameraFollowFactor, 0.04);
                         
-                        // Apply the smoothed follow factor to the camera's position.
                         cameraPosition.current.x = lerp(cameraPosition.current.x, targetCameraX, cameraFollowFactor.current);
                         cameraPosition.current.y = lerp(cameraPosition.current.y, targetCameraY, cameraFollowFactor.current);
                         
@@ -620,22 +624,18 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         y: currentPosition.y + playerVelocity.current.y,
                     };
 
-                    // Resolve collisions by pushing the player out of obstacles and adjusting velocity.
                     for (const obj of worldObjects) {
                         const playerHitbox = getPlayerHitbox(nextPosition);
                         const objHitbox = getObjectHitbox(obj);
                         if (objHitbox) {
                             const resolution = resolveCircleAABBCollision(playerHitbox, objHitbox);
                             if (resolution) {
-                                // 1. Correct the position to resolve overlap
                                 nextPosition.x += resolution.push.x;
                                 nextPosition.y += resolution.push.y;
 
-                                // 2. Adjust velocity for sliding
                                 const normal = resolution.normal;
                                 const dot = playerVelocity.current.x * normal.x + playerVelocity.current.y * normal.y;
                                 
-                                // Only remove velocity component that is pushing into the object
                                 if (dot < 0) {
                                     playerVelocity.current.x -= dot * normal.x;
                                     playerVelocity.current.y -= dot * normal.y;
@@ -644,9 +644,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         }
                     }
                     
-                    // The bug is subtle. The playerPosition state used in executePunch is from the last render.
-                    // The game loop calculates the new position, but the state update might not be flushed before the punch handler runs.
-                    // Using a ref guarantees we always have the latest position calculated by the loop.
                     playerPositionRef.current = nextPosition;
 
                     if (nextPosition.x !== currentPosition.x || nextPosition.y !== currentPosition.y) {
@@ -670,7 +667,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
     const addToInventory = (itemType: InventoryItemType, quantityToAdd: number, currentInventory: (InventoryItem | undefined)[]) => {
         let newInventory = [...currentInventory];
-        // Try to stack with existing items first
         for (let i = 0; i < newInventory.length; i++) {
             if (newInventory[i]?.type === itemType) {
                 newInventory[i] = { ...newInventory[i]!, quantity: newInventory[i]!.quantity + quantityToAdd };
@@ -678,31 +674,23 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             }
         }
     
-        // Find the first empty slot
         const firstEmptySlot = newInventory.findIndex(item => !item);
         if (firstEmptySlot !== -1) {
             newInventory[firstEmptySlot] = { type: itemType, quantity: quantityToAdd };
             return newInventory;
         }
     
-        return newInventory; // Inventory is full
+        return newInventory;
     };
     
     const executePunch = (damage: number, isCrit: boolean) => {
-        // If a crit animation is currently visible, don't let a normal punch override it.
         if (showPunchIndicator.isCrit && !isCrit) {
-            // The punch still deals damage, but we don't touch the indicator state,
-            // allowing the crit animation to finish.
         } else {
-            // This is a crit, or a normal punch when no crit is animating.
-            // It's safe to reset the indicator.
             if (punchIndicatorTimeoutRef.current) {
                 clearTimeout(punchIndicatorTimeoutRef.current);
             }
             setShowPunchIndicator({ isVisible: true, isCrit });
             punchIndicatorTimeoutRef.current = window.setTimeout(() => {
-                // Use a functional update to prevent race conditions.
-                // This ensures we only hide the indicator if a new one hasn't been triggered.
                 setShowPunchIndicator(currentIndicator => {
                     if (currentIndicator.isVisible && currentIndicator.isCrit === isCrit) {
                         return { isVisible: false, isCrit: false };
@@ -718,7 +706,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         }
 
         const punchRange = 42;
-        const punchAngle = 80; // The total angle of the cone
+        const punchAngle = 80;
         const playerAngleRad = (playerRotationRef.current - 90) * (Math.PI / 180);
 
         let closestObject: WorldObject | null = null;
@@ -753,8 +741,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             const dotProduct = forwardVec.x * normalizedToObjectVec.x + forwardVec.y * normalizedToObjectVec.y;
             const angleThreshold = Math.cos((punchAngle / 2) * (Math.PI / 180));
 
-            // If we are right on top of/next to an object, the angle check can fail when strafing.
-            // This bypasses the angle check if the player is extremely close to the object's hitbox.
             const isVeryClose = distance <= PLAYER_HITBOX_RADIUS + 5;
 
             if (isVeryClose || dotProduct > angleThreshold) {
@@ -798,7 +784,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             if (newHealth <= 0) {
                 let itemsDropped = false;
                 if (closestObject.type === 'tree') {
-                    const planksToDrop = Math.floor(Math.random() * 3) + 4; // Random integer between 4 and 6
+                    const planksToDrop = Math.floor(Math.random() * 3) + 4;
                     setInventory(prev => addToInventory('plank', planksToDrop, prev));
                     itemsDropped = true;
                 }
@@ -862,7 +848,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         punchChargeStartRef.current = null;
 
         if (performance.now() < punchAvailableTimeRef.current) {
-            return; // Cooldown active, cancel the punch.
+            return;
         }
     
         let damage = 1;
@@ -944,9 +930,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         action();
     };
 
-    // --- CRAFTING LOGIC ---
     useEffect(() => {
-        // Check for a valid craft
         const inputCounts: { [key in InventoryItemType]?: number } = {};
         for (const item of craftingInput) {
             if (item) {
@@ -955,17 +939,14 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         }
         
         let output: InventoryItem | undefined = undefined;
-        // Find a matching recipe
         for (const recipe of ALL_RECIPES) {
             let match = true;
-            // Check if all ingredients for the recipe are present in the input
             for (const ingredient of recipe.ingredients) {
                 if (!inputCounts[ingredient.type] || inputCounts[ingredient.type] < ingredient.quantity) {
                     match = false;
                     break;
                 }
             }
-            // Check if there are no extra items in the input that are not in the recipe
             if (match) {
                  for (const inputType in inputCounts) {
                     if (!recipe.ingredients.some(ing => ing.type === inputType)) {
@@ -983,15 +964,12 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
     }, [craftingInput]);
 
-    // --- INVENTORY DRAG & DROP LOGIC ---
-
     const handleSlotClick = (e: React.MouseEvent, index: number, type: 'inventory' | 'crafting' | 'output') => {
         e.preventDefault();
         e.stopPropagation();
     
-        // --- DROP LOGIC ---
         if (draggedItem) {
-            if (type === 'output') { // Can't drop into output slot
+            if (type === 'output') {
                 return;
             }
     
@@ -1004,17 +982,15 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             
             let newDraggedItem: DraggedItem | null = JSON.parse(JSON.stringify(draggedItem));
     
-            if (isLMB) { // Full drop / swap
+            if (isLMB) {
                 if (targetItem && targetItem.type === newDraggedItem.item.type) {
-                    // Stack with existing
                     targetItem.quantity += newDraggedItem.item.quantity;
                     newDraggedItem = null;
                 } else {
-                    // Swap
                     targetArray[index] = newDraggedItem.item;
                     newDraggedItem = targetItem ? { ...newDraggedItem, item: targetItem } : null;
                 }
-            } else if (isRMB) { // Single item drop
+            } else if (isRMB) {
                 if (!targetItem) {
                     targetArray[index] = { type: newDraggedItem.item.type, quantity: 1 };
                     newDraggedItem.item.quantity--;
@@ -1032,7 +1008,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             return;
         }
     
-        // --- PICKUP LOGIC ---
         if (!draggedItem) {
             const isLMB = e.button === 0;
             const isRMB = e.button === 2;
@@ -1060,7 +1035,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     
             if (isLMB) {
                 itemForDrag = { ...itemToPick };
-            } else { // isRMB
+            } else {
                 const half = Math.ceil(itemToPick.quantity / 2);
                 itemForDrag = { type: itemToPick.type, quantity: half };
                 remainingQuantity = itemToPick.quantity - half;
@@ -1094,7 +1069,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
             newCrafting[source.index] = existingItem ? { ...existingItem, quantity: existingItem.quantity + item.quantity } : item;
             setCraftingInput(newCrafting);
         }
-        // If from output, it just disappears (as ingredients were already consumed). This matches Minecraft behavior.
         
         setDraggedItem(null);
     };
@@ -1133,7 +1107,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
         willChange: 'transform',
     });
     
-    // --- HUD Styles ---
     const hotbarLayout = settings.layouts.hotbar;
     const hotbarStyle = getLayoutStyles(hotbarLayout);
     const hotbarFlexDirection = hotbarLayout.gridStyle === 'column' ? 'flex-col' : 'flex-row';
@@ -1206,7 +1179,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     if (entity.type === 'player') {
                          return (
                             <div key="player" style={{ position: 'absolute', left: entity.position.x, top: entity.position.y }}>
-                                {/* Show charging indicator AND punch animation simultaneously */}
                                 {isCharging && (
                                     <InteractionIndicator
                                         rotation={playerRotation}
@@ -1254,11 +1226,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     );
                 })}
 
-                {/* FIX: Use Object.keys to map over healthIndicators to ensure correct type inference. */}
                 {Object.keys(healthIndicators).map((id) => {
                     const indicator = healthIndicators[Number(id) as keyof typeof healthIndicators];
                     const { position, size, current, max } = indicator;
-                    const topOffset = (size * 16) / 2 + 10; // 1rem = 16px. Position above emoji center.
+                    const topOffset = (size * 16) / 2 + 10;
                     return (
                         <div
                             key={`hp-${id}`}
@@ -1347,7 +1318,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     </div>
                 )}
                 
-                {buildButtonLayout.visible !== false && (isTouchDevice || !isTouchDevice) && ( // Build button logic for PC is now context menu, but keep button for touch
+                {buildButtonLayout.visible !== false && (isTouchDevice || !isTouchDevice) && (
                     <div style={buildButtonStyle} className={`z-10 pointer-events-auto ${isTouchDevice ? '' : 'hidden'}`}>
                         <button 
                             onMouseDown={(e) => handleActionPress(e, handlePlaceItem)}

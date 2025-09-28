@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Game from './components/Game';
 import Settings from './components/Settings';
 import type { GameSettings, GameState } from './types';
@@ -43,22 +43,26 @@ const deepMerge = (target: any, source: any) => {
 
 type GameMode = 'offline' | 'online';
 
+const WEBSOCKET_URL = 'wss://nexussurvival.duckdns.org/websocket';
+const MAX_RECONNECT_ATTEMPTS = 5;
+
 const App: React.FC = () => {
     const [gameState, setGameState] = useState<GameState>('menu');
     const [gameMode, setGameMode] = useState<GameMode>('offline');
     const [socket, setSocket] = useState<WebSocket | null>(null);
+    const [playerId, setPlayerId] = useState<string | null>(null);
     const [connectionError, setConnectionError] = useState<string | null>(null);
-    const [serverAddress, setServerAddress] = useState('localhost');
-    const [serverPort, setServerPort] = useState('3000');
-    const [serverPath, setServerPath] = useState('/websocket');
 
+    const pingIntervalRef = useRef<number | null>(null);
+    const pongTimeoutRef = useRef<number | null>(null);
+    const reconnectAttemptsRef = useRef(0);
+    const reconnectTimeoutRef = useRef<number | null>(null);
 
     const [settings, setSettings] = useState<GameSettings>(() => {
         try {
             const savedSettings = localStorage.getItem('gameSettings');
             if (savedSettings) {
                 const parsed = JSON.parse(savedSettings);
-                // Deep merge with defaults to ensure new settings (like HUD layouts) are added
                 return deepMerge(defaultSettings, parsed);
             }
         } catch (error) {
@@ -74,19 +78,110 @@ const App: React.FC = () => {
             console.error("Failed to save settings to localStorage", error);
         }
     }, [settings]);
+
+    const handleAppMessages = useCallback((event: MessageEvent) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'pong') {
+                if (pongTimeoutRef.current) {
+                    clearTimeout(pongTimeoutRef.current);
+                    pongTimeoutRef.current = null;
+                }
+            } else if (data.type === 'init') {
+                console.log("Received init from server, my ID:", data.playerId);
+                setPlayerId(data.playerId);
+                setGameMode('online');
+                setGameState('playing');
+                setConnectionError(null);
+            }
+        } catch (e) { /* ignore non-json messages */ }
+    }, []);
     
     const cleanupConnection = useCallback(() => {
+        if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+        if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current);
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+        pingIntervalRef.current = null;
+        pongTimeoutRef.current = null;
+        reconnectTimeoutRef.current = null;
+        reconnectAttemptsRef.current = 0;
+
         if (socket) {
+            socket.removeEventListener('message', handleAppMessages);
             socket.close(1000, "User initiated disconnect");
             setSocket(null);
+            setPlayerId(null);
         }
-    }, [socket]);
+    }, [socket, handleAppMessages]);
 
     useEffect(() => {
         return () => {
             cleanupConnection();
         };
     }, [cleanupConnection]);
+
+    const handleConnectClick = useCallback(() => {
+        setGameState('connecting');
+        setConnectionError(null);
+    
+        const newSocket = new WebSocket(WEBSOCKET_URL);
+    
+        const startPing = () => {
+            if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+            pingIntervalRef.current = window.setInterval(() => {
+                if (newSocket.readyState === WebSocket.OPEN) {
+                    newSocket.send(JSON.stringify({ type: 'ping' }));
+                    if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current);
+                    pongTimeoutRef.current = window.setTimeout(() => {
+                        console.warn("Pong not received in time. Connection is likely dead.");
+                        newSocket.close(); // This will trigger the 'onclose' handler for reconnection
+                    }, 5000); // 5 seconds to receive a pong
+                }
+            }, 10000); // Ping every 10 seconds
+        };
+    
+        newSocket.onopen = () => {
+            console.log('WebSocket connection established.');
+            reconnectAttemptsRef.current = 0;
+            setSocket(newSocket);
+            startPing();
+            // The server will now send an 'init' message.
+            // Game state will be set to 'playing' in handleAppMessages upon receiving 'init'.
+        };
+    
+        newSocket.addEventListener('message', handleAppMessages);
+    
+        newSocket.onclose = (event) => {
+            console.log('WebSocket connection closed.', event.reason, 'Code:', event.code);
+            if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+            if (pongTimeoutRef.current) clearTimeout(pongTimeoutRef.current);
+            
+            newSocket.removeEventListener('message', handleAppMessages);
+            setSocket(null);
+    
+            if (event.code === 1000 || reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+                return; // Intentional close or max retries reached
+            }
+    
+            // Reconnection logic
+            const delay = Math.pow(2, reconnectAttemptsRef.current) * 1000;
+            reconnectAttemptsRef.current++;
+            console.log(`Connection lost. Attempting to reconnect in ${delay / 1000}s... (Attempt ${reconnectAttemptsRef.current})`);
+            
+            setGameState('connecting');
+            setConnectionError(`Соединение потеряно. Попытка переподключения... (${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
+            
+            reconnectTimeoutRef.current = window.setTimeout(handleConnectClick, delay);
+        };
+    
+        newSocket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            if (reconnectAttemptsRef.current === 0) {
+                 setConnectionError('Не удалось подключиться к серверу. Проверьте ваше интернет-соединение.');
+            }
+            // The onclose event will fire after onerror, triggering reconnection logic.
+        };
+    }, [handleAppMessages]);
 
     const handlePlayClick = useCallback(() => {
         setGameState('mode-select');
@@ -101,58 +196,16 @@ const App: React.FC = () => {
         setGameMode('offline');
         setGameState('playing');
     }, [cleanupConnection]);
-
-    const handleConnectClick = useCallback(() => {
-        if (!serverAddress || !serverPort) {
-            setConnectionError('Пожалуйста, введите адрес и порт сервера.');
-            return;
-        }
-        setGameState('connecting');
-        setConnectionError(null);
-
-        const url = `wss://${serverAddress}:${serverPort}${serverPath.startsWith('/') ? serverPath : '/' + serverPath}`;
-    
-        const newSocket = new WebSocket(url);
-    
-        newSocket.onopen = () => {
-            console.log('WebSocket connection established.');
-            setSocket(newSocket);
-            setGameMode('online');
-            setGameState('playing');
-        };
-    
-        newSocket.onclose = (event) => {
-            console.log('WebSocket connection closed.', event.reason);
-            // Don't show an error if we closed it intentionally (code 1000)
-            if (event.code === 1000) return;
-            
-            setConnectionError('Соединение с сервером потеряно.');
-            setSocket(null);
-            // Only change state if we are not already on a menu screen
-            setGameState(prev => prev === 'playing' || prev === 'paused' || prev === 'connecting' ? 'mode-select' : prev);
-        };
-    
-        newSocket.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            setConnectionError('Не удалось подключиться к серверу. Проверьте адрес, порт, путь и убедитесь, что сервер запущен.');
-            setSocket(null);
-            setGameState('mode-select');
-        };
-    }, [serverAddress, serverPort, serverPath]);
     
     const handleBackToMenu = useCallback(() => {
         cleanupConnection();
         setGameState('menu');
     }, [cleanupConnection]);
     
-    const handleBackToMenuFromGame = useCallback(() => {
-        cleanupConnection();
-        setGameState('menu');
-    }, [cleanupConnection]);
-
     const handleBackToModeSelect = useCallback(() => {
         cleanupConnection();
         setGameState('mode-select');
+        setConnectionError(null);
     }, [cleanupConnection]);
 
 
@@ -202,44 +255,12 @@ const App: React.FC = () => {
                             >
                                 Офлайн
                             </button>
-                            <div className="flex flex-col gap-2 items-center p-4 bg-gray-900/50 rounded-lg w-full max-w-sm">
-                                <div className="w-full">
-                                    <label htmlFor="server-address" className="text-sm text-gray-400">Адрес сервера</label>
-                                    <input
-                                        id="server-address"
-                                        type="text"
-                                        value={serverAddress}
-                                        onChange={(e) => setServerAddress(e.target.value)}
-                                        className="px-4 py-3 bg-gray-800 text-white rounded-lg text-lg w-full text-center placeholder-gray-500 border-2 border-gray-700 focus:border-purple-500 focus:outline-none"
-                                    />
-                                </div>
-                                <div className="w-full">
-                                     <label htmlFor="server-port" className="text-sm text-gray-400">Порт</label>
-                                    <input
-                                        id="server-port"
-                                        type="text"
-                                        value={serverPort}
-                                        onChange={(e) => setServerPort(e.target.value)}
-                                        className="px-4 py-3 bg-gray-800 text-white rounded-lg text-lg w-full text-center placeholder-gray-500 border-2 border-gray-700 focus:border-purple-500 focus:outline-none"
-                                    />
-                                </div>
-                                <div className="w-full">
-                                     <label htmlFor="server-path" className="text-sm text-gray-400">Путь WebSocket</label>
-                                    <input
-                                        id="server-path"
-                                        type="text"
-                                        value={serverPath}
-                                        onChange={(e) => setServerPath(e.target.value)}
-                                        className="px-4 py-3 bg-gray-800 text-white rounded-lg text-lg w-full text-center placeholder-gray-500 border-2 border-gray-700 focus:border-purple-500 focus:outline-none"
-                                    />
-                                </div>
-                                <button
-                                    onClick={handleConnectClick}
-                                    className="w-full mt-2 px-8 py-4 bg-purple-600 text-white font-bold rounded-lg text-2xl hover:bg-purple-700 transition-colors"
-                                >
-                                    Подключиться
-                                </button>
-                            </div>
+                            <button
+                                onClick={handleConnectClick}
+                                className="px-8 py-4 bg-purple-600 text-white font-bold rounded-lg text-2xl hover:bg-purple-700 transition-colors"
+                            >
+                                Онлайн
+                            </button>
                         </div>
                          <button
                             onClick={handleBackToMenu}
@@ -252,7 +273,8 @@ const App: React.FC = () => {
             case 'connecting':
                  return (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-black">
-                        <p className="text-2xl animate-pulse">Подключение к wss://{serverAddress}:{serverPort}{serverPath}...</p>
+                        <p className="text-2xl animate-pulse">Подключение к серверу...</p>
+                        {connectionError && <p className="mt-4 text-center text-yellow-400">{connectionError}</p>}
                         <button
                             onClick={handleBackToModeSelect}
                             className="mt-8 px-6 py-2 bg-red-600 text-white font-bold rounded-lg text-lg hover:bg-red-700 transition-colors"
@@ -270,7 +292,8 @@ const App: React.FC = () => {
                             settings={settings} 
                             gameMode={gameMode}
                             socket={socket}
-                            onBackToMenu={handleBackToMenuFromGame}
+                            playerId={playerId}
+                            onBackToMenu={handleBackToMenu}
                         />;
         }
     };
