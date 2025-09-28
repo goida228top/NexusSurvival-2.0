@@ -53,6 +53,10 @@ const App: React.FC = () => {
     const [playerId, setPlayerId] = useState<string | null>(null);
     const [connectionError, setConnectionError] = useState<string | null>(null);
     const [initialPlayers, setInitialPlayers] = useState<RemotePlayer[]>([]);
+    const [nickname, setNickname] = useState<string>(
+        () => localStorage.getItem('playerNickname') || `Guest${Math.floor(Math.random() * 10000)}`
+    );
+    const [finalNickname, setFinalNickname] = useState<string>(nickname);
 
     const pingIntervalRef = useRef<number | null>(null);
     const pongTimeoutRef = useRef<number | null>(null);
@@ -80,6 +84,10 @@ const App: React.FC = () => {
         }
     }, [settings]);
 
+    useEffect(() => {
+        localStorage.setItem('playerNickname', nickname);
+    }, [nickname]);
+
     const handleAppMessages = useCallback((event: MessageEvent) => {
         try {
             const data = JSON.parse(event.data);
@@ -90,14 +98,26 @@ const App: React.FC = () => {
                 }
             } else if (data.type === 'init') {
                 console.log("Received init from server, my ID:", data.playerId);
+
+                const myProposedNickname = nickname.trim() || `Guest${Math.floor(Math.random() * 10000)}`;
+                let uniqueNickname = myProposedNickname;
+                const otherPlayers: RemotePlayer[] = data.players || [];
+                const isCollision = otherPlayers.some(p => p.nickname === myProposedNickname);
+
+                if (isCollision) {
+                    uniqueNickname = `${myProposedNickname}_${data.playerId.slice(0, 4)}`;
+                    console.warn(`Nickname collision detected. Changing name to ${uniqueNickname}`);
+                }
+                
+                setFinalNickname(uniqueNickname);
                 setPlayerId(data.playerId);
-                setInitialPlayers(data.players || []);
+                setInitialPlayers(otherPlayers);
                 setGameMode('online');
                 setGameState('playing');
                 setConnectionError(null);
             }
         } catch (e) { /* ignore non-json messages */ }
-    }, []);
+    }, [nickname]);
     
     const cleanupConnection = useCallback(() => {
         if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
@@ -147,8 +167,7 @@ const App: React.FC = () => {
             reconnectAttemptsRef.current = 0;
             setSocket(newSocket);
             startPing();
-            // The server will now send an 'init' message.
-            // Game state will be set to 'playing' in handleAppMessages upon receiving 'init'.
+            // The server will now send an 'init' message, which is handled in handleAppMessages.
         };
     
         newSocket.addEventListener('message', handleAppMessages);
@@ -161,8 +180,11 @@ const App: React.FC = () => {
             newSocket.removeEventListener('message', handleAppMessages);
             setSocket(null);
     
-            if (event.code === 1000 || reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-                return; // Intentional close or max retries reached
+            // If the close was intentional (by user backing out) or we've hit max retries, stop.
+            if (gameState !== 'playing' && (event.code === 1000 || reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS)) {
+                 setGameState('mode-select'); // Go back if cancellation or final failure
+                 setConnectionError('Не удалось подключиться.');
+                 return;
             }
     
             // Reconnection logic
@@ -183,7 +205,7 @@ const App: React.FC = () => {
             }
             // The onclose event will fire after onerror, triggering reconnection logic.
         };
-    }, [handleAppMessages]);
+    }, [handleAppMessages, gameState]);
 
     const handlePlayClick = useCallback(() => {
         setGameState('mode-select');
@@ -250,6 +272,17 @@ const App: React.FC = () => {
                     <div className="w-full h-full flex flex-col items-center justify-center bg-black p-4">
                         {connectionError && <p className="mb-4 text-center text-red-400 bg-red-900/50 p-3 rounded-md">{connectionError}</p>}
                         <h2 className="text-4xl font-bold mb-8">Выберите режим</h2>
+                        <div className="mb-6 w-full max-w-xs">
+                            <label htmlFor="nickname" className="block text-center text-gray-400 mb-2">Ваш никнейм</label>
+                            <input
+                                id="nickname"
+                                type="text"
+                                value={nickname}
+                                onChange={(e) => setNickname(e.target.value)}
+                                maxLength={16}
+                                className="px-4 py-3 bg-gray-800 text-white rounded-lg text-lg w-full text-center placeholder-gray-500 border-2 border-gray-700 focus:border-purple-500 focus:outline-none"
+                            />
+                        </div>
                         <div className="flex flex-col sm:flex-row gap-4">
                             <button
                                 onClick={handleOfflineClick}
@@ -259,7 +292,8 @@ const App: React.FC = () => {
                             </button>
                             <button
                                 onClick={handleConnectClick}
-                                className="px-8 py-4 bg-purple-600 text-white font-bold rounded-lg text-2xl hover:bg-purple-700 transition-colors"
+                                disabled={!nickname.trim()}
+                                className="px-8 py-4 bg-purple-600 text-white font-bold rounded-lg text-2xl hover:bg-purple-700 transition-colors disabled:bg-gray-500 disabled:cursor-not-allowed"
                             >
                                 Онлайн
                             </button>
@@ -295,6 +329,7 @@ const App: React.FC = () => {
                             gameMode={gameMode}
                             socket={socket}
                             playerId={playerId}
+                            nickname={finalNickname}
                             initialPlayers={initialPlayers}
                             onBackToMenu={handleBackToMenu}
                         />;

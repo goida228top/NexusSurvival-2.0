@@ -16,6 +16,7 @@ interface GameProps {
     gameMode: GameMode;
     socket: WebSocket | null;
     playerId: string | null;
+    nickname: string;
     initialPlayers: RemotePlayer[];
     onBackToMenu: () => void;
 }
@@ -156,7 +157,7 @@ const lerpAngle = (start: number, end: number, amt: number) => {
     return value % 360;
 }
 
-const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, socket, playerId, initialPlayers, onBackToMenu }) => {
+const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, socket, playerId, nickname, initialPlayers, onBackToMenu }) => {
     const { useState, useEffect, useRef } = React;
     const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
     const [playerPosition, setPlayerPosition] = useState<Position>({ x: 100, y: 100 });
@@ -285,24 +286,22 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         break;
                     }
                     case 'player_moved': {
-                        const { playerId: movedPlayerId, x, y, rotation } = data;
+                        const { playerId: movedPlayerId, x, y, rotation, nickname: remoteNickname } = data;
                         if (movedPlayerId === undefined || movedPlayerId === playerId) {
                             return; // Ignore if no ID or it's our own echo
                         }
                         
                         const id = String(movedPlayerId);
                         setRemotePlayers(prev => {
-                            // Guard clause: if player doesn't exist, do nothing.
                             if (!prev[id]) {
-                                console.warn(`[Move Handler] Player ID ${id} not found. Ignoring movement update.`);
                                 return prev;
                             }
 
-                            // Player exists, create a new state object with the updated player.
                             const updatedPlayer = {
                                 ...prev[id],
                                 targetPosition: { x, y },
                                 targetRotation: rotation,
+                                nickname: remoteNickname || prev[id].nickname,
                             };
 
                             return {
@@ -335,12 +334,13 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 x: playerPositionRef.current.x,
                 y: playerPositionRef.current.y,
                 rotation: playerRotationRef.current,
+                nickname: nickname,
             }));
-        }, 100);
+        }, 50); // Send updates 20 times per second
 
         return () => clearInterval(interval);
 
-    }, [gameMode, socket]);
+    }, [gameMode, socket, nickname]);
 
 
     const handlePause = () => setGameState('paused');
@@ -1193,6 +1193,9 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                 {settings.showPunchHitbox && !isCharging && !showPunchIndicator.isVisible && (
                                     <InteractionIndicator rotation={playerRotation} type="punch" isDebug />
                                 )}
+                                <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-black/50 text-white text-xs px-2 py-1 rounded-md whitespace-nowrap">
+                                    {nickname}
+                                </div>
                                 <Player rotation={playerRotation} />
                             </div>
                         );
