@@ -180,7 +180,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const [critShake, setCritShake] = useState(false);
     const [lockRotation, setLockRotation] = useState(false);
 
-    const [remotePlayers, setRemotePlayers] = useState<{ [id: string]: RemotePlayer }>({});
+    // FIX: Remote players are now stored in an array for more robust state updates.
+    const [remotePlayers, setRemotePlayers] = useState<RemotePlayer[]>([]);
 
     // Crafting State
     const [craftingInput, setCraftingInput] = useState<(InventoryItem | undefined)[]>(Array(4).fill(undefined));
@@ -224,14 +225,14 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     useEffect(() => {
         if (gameMode === 'online' && playerId) {
             const now = performance.now();
-            const newRemotePlayers: { [id: string]: RemotePlayer } = {};
+            const newRemotePlayersList: RemotePlayer[] = [];
             const initialPlayersData = initialPlayers as any[] as IncomingPlayer[];
 
             for (const p of initialPlayersData) {
                 const id = String(p.id).trim();
                 if (id === playerId) continue; // Always ignore self
                 const pos = { x: p.x, y: p.y };
-                newRemotePlayers[id] = {
+                newRemotePlayersList.push({
                     id: id,
                     type: 'remote-player',
                     position: pos,
@@ -242,56 +243,56 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     health: p.health || 100,
                     lastUpdateTime: now,
                     lastPositionChangeTime: now,
-                };
+                });
             }
-            setRemotePlayers(newRemotePlayers);
+            setRemotePlayers(newRemotePlayersList);
+        } else {
+            setRemotePlayers([]); // Clear players if not online
         }
     }, [gameMode, initialPlayers, playerId]);
 
     // --- WebSocket Online Logic ---
     useEffect(() => {
         if (gameMode !== 'online' || !socket) {
-            setRemotePlayers({});
+            setRemotePlayers([]);
             return;
         }
 
         const handleMessage = (event: MessageEvent) => {
             try {
                 const data: { type: string, [key: string]: any } = JSON.parse(event.data);
-                const now = performance.now();
+                
                 switch (data.type) {
                     case 'players_update': {
                         const playersUpdate = data.players as IncomingPlayer[];
                         if (!playersUpdate) break;
     
-                        setRemotePlayers(prev => {
-                            const newPlayersState: { [id: string]: RemotePlayer } = {};
-                            const now = performance.now();
+                        const newRemotePlayersList: RemotePlayer[] = [];
+                        const now = performance.now();
+                        
+                        for (const p of playersUpdate) {
+                            const id = String(p.id).trim();
+                            if (id === playerId) continue; // Critical check to filter self
+    
+                            const pos = { x: p.x, y: p.y };
                             
-                            for (const p of playersUpdate) {
-                                const id = String(p.id).trim();
-                                if (id === playerId) continue;
-    
-                                const pos = { x: p.x, y: p.y };
-    
-                                // FIX: To solve the cloning bug, we completely ignore client-side interpolation
-                                // and snap the player directly to the server's coordinates. This is more robust
-                                // and prevents any possibility of ghosting artifacts from stale state.
-                                newPlayersState[id] = {
-                                    id: id,
-                                    type: 'remote-player',
-                                    position: pos,
-                                    targetPosition: pos,
-                                    rotation: p.rotation,
-                                    targetRotation: p.rotation,
-                                    nickname: p.nickname,
-                                    health: p.health || 100,
-                                    lastUpdateTime: now,
-                                    lastPositionChangeTime: now, 
-                                };
-                            }
-                            return newPlayersState;
-                        });
+                            // Create a new player object for the list.
+                            // We snap to the server position directly to prevent any interpolation bugs.
+                            newRemotePlayersList.push({
+                                id: id,
+                                type: 'remote-player',
+                                position: pos,
+                                targetPosition: pos,
+                                rotation: p.rotation,
+                                targetRotation: p.rotation,
+                                nickname: p.nickname,
+                                health: p.health || 100,
+                                lastUpdateTime: now,
+                                lastPositionChangeTime: now, 
+                            });
+                        }
+                        // Replace the entire old array with the new one.
+                        setRemotePlayers(newRemotePlayersList);
                         break;
                     }
                 }
@@ -562,9 +563,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     return newRotation;
                 });
                 
-                // Remote players are now snapped to position, so no interpolation is needed.
-                // The state is updated directly by the websocket handler.
-
                 setPlayerPosition(currentPosition => {
                     if (gameContainerRef.current && gameWorldRef.current) {
                         const zoom = isTouchDevice ? 0.9 : 1.7;
@@ -1106,7 +1104,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
     const renderableEntities: GameEntity[] = [
         ...worldObjects,
-        ...Object.values(remotePlayers),
+        ...remotePlayers,
         playerAsEntity
     ].sort((a, b) => getEntityFeetY(a) - getEntityFeetY(b));
 
