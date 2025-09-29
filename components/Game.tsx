@@ -326,14 +326,34 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     useEffect(() => {
         if (gameMode !== 'online' || !socket || socket.readyState !== WebSocket.OPEN) return;
 
+        // Store the last state that was sent to the server.
+        const lastSentState = {
+            x: playerPositionRef.current.x,
+            y: playerPositionRef.current.y,
+            rotation: playerPositionRef.current.rotation,
+        };
+
         const interval = setInterval(() => {
-            socket.send(JSON.stringify({
-                type: 'move',
-                x: playerPositionRef.current.x,
-                y: playerPositionRef.current.y,
-                rotation: playerRotationRef.current,
-            }));
-        }, 50); // Send updates 20 times per second
+            const currentPos = playerPositionRef.current;
+            const currentRot = playerRotationRef.current;
+
+            const positionChanged = Math.abs(currentPos.x - lastSentState.x) > 0.1 || Math.abs(currentPos.y - lastSentState.y) > 0.1;
+            const rotationChanged = Math.abs(currentRot - lastSentState.rotation) > 1;
+
+            // Only send an update if the player has moved or rotated significantly.
+            if (positionChanged || rotationChanged) {
+                 socket.send(JSON.stringify({
+                    type: 'move',
+                    x: currentPos.x,
+                    y: currentPos.y,
+                    rotation: currentRot,
+                }));
+                // Update the last sent state with the new values.
+                lastSentState.x = currentPos.x;
+                lastSentState.y = currentPos.y;
+                lastSentState.rotation = currentRot;
+            }
+        }, 100); // Check 10 times per second.
 
         return () => clearInterval(interval);
 
