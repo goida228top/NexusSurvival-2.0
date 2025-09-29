@@ -99,7 +99,10 @@ const App: React.FC = () => {
             } else if (data.type === 'init') {
                 console.log("Received init from server, my ID:", data.playerId);
                 
-                setPlayerId(data.playerId);
+                // FIX: Convert the numeric player ID from the server to a string 
+                // to match the state's type and ensure correct comparisons later.
+                // This prevents the client from rendering itself as a remote player.
+                setPlayerId(String(data.playerId));
                 setInitialPlayers(data.players || []);
                 setGameMode('online');
                 setGameState('playing');
