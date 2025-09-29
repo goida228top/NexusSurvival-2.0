@@ -1,4 +1,3 @@
-
 import React from 'react';
 import Joystick from './Joystick';
 import Player from './Player';
@@ -262,58 +261,44 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 const data: { type: string, [key: string]: any } = JSON.parse(event.data);
                 const now = performance.now();
                 switch (data.type) {
-                    case 'players_update': {
-                        const playersUpdate = data.players as IncomingPlayer[];
-                        if (!playersUpdate || !Array.isArray(playersUpdate)) break;
-                    
-                        setRemotePlayers(prev => {
-                            const newPlayersState: { [id: string]: RemotePlayer } = {};
-                            const updatedIds = new Set<string>();
-
-                            for (const p of playersUpdate) {
-                                const id = String(p.id).trim();
-                                if (id === playerId) continue;
-                                
-                                updatedIds.add(id);
-                                const existingPlayer = prev[id];
-                                
-                                const positionChanged = !existingPlayer || existingPlayer.targetPosition.x !== p.x || existingPlayer.targetPosition.y !== p.y;
-                                
-                                newPlayersState[id] = {
-                                    id: id,
-                                    type: 'remote-player',
-                                    position: existingPlayer ? existingPlayer.position : { x: p.x, y: p.y },
-                                    targetPosition: { x: p.x, y: p.y },
-                                    rotation: existingPlayer ? existingPlayer.rotation : p.rotation,
-                                    targetRotation: p.rotation,
-                                    nickname: p.nickname,
-                                    health: p.health || 100,
-                                    lastUpdateTime: now,
-                                    lastPositionChangeTime: positionChanged ? now : (existingPlayer?.lastPositionChangeTime || now),
-                                };
-                            }
-                            return newPlayersState;
-                        });
+                    case 'player_moved': {
+                        const { playerId: movedPlayerId, x, y, rotation } = data;
+                        if (movedPlayerId !== undefined && x !== undefined && y !== undefined) {
+                            const id = String(movedPlayerId).trim();
+                            setRemotePlayers(prev => {
+                                const playerToUpdate = prev[id];
+                                if (playerToUpdate) {
+                                    const positionChanged = playerToUpdate.targetPosition.x !== x || playerToUpdate.targetPosition.y !== y;
+                                    return {
+                                        ...prev,
+                                        [id]: {
+                                            ...playerToUpdate,
+                                            targetPosition: { x, y },
+                                            targetRotation: rotation ?? playerToUpdate.targetRotation,
+                                            lastUpdateTime: now,
+                                            lastPositionChangeTime: positionChanged ? now : playerToUpdate.lastPositionChangeTime
+                                        }
+                                    };
+                                }
+                                return prev; // Player not found, do nothing.
+                            });
+                        }
                         break;
                     }
                     case 'player_joined': {
                         const p = data.player as IncomingPlayer;
-                        if (!p || !p.id || p.id === playerId) break;
+                        if (!p || !p.id || String(p.id).trim() === playerId) break;
                         
                         const newId = String(p.id).trim();
-                        const newNickname = p.nickname;
 
                         setRemotePlayers(prev => {
-                            const newPlayersState = { ...prev };
-                            
-                            // Anti-Clone: If a player with the same nickname already exists, remove it.
-                            const oldCloneEntry = Object.entries(newPlayersState).find(
-                                ([id, player]) => player.nickname === newNickname
-                            );
-                            if (oldCloneEntry) {
-                                delete newPlayersState[oldCloneEntry[0]];
+                            // Anti-Clone: If a player with this ID already exists, ignore the message.
+                            if (prev[newId]) {
+                                console.warn(`Received 'player_joined' for existing player ID: ${newId}. Ignoring.`);
+                                return prev;
                             }
 
+                            const newPlayersState = { ...prev };
                             const pos = { x: p.x, y: p.y };
                             newPlayersState[newId] = {
                                 id: newId,
@@ -322,7 +307,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                 targetPosition: pos,
                                 rotation: p.rotation,
                                 targetRotation: p.rotation,
-                                nickname: newNickname,
+                                nickname: p.nickname,
                                 health: p.health || 100,
                                 lastUpdateTime: now,
                                 lastPositionChangeTime: now,
@@ -346,7 +331,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         const { playerId: updatedPlayerId, nickname: newNickname } = data;
                         if (updatedPlayerId && newNickname) {
                             const id = String(updatedPlayerId).trim();
-                            if (id === playerId) break; // This is handled in App.tsx
+                            if (id === playerId) break; // This is handled in App.tsx for the local player
                             setRemotePlayers(prev => {
                                 const playerToUpdate = prev[id];
                                 if (playerToUpdate) {
@@ -620,14 +605,19 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         );
                 
                         let newPos = player.position;
-                        if (distanceToTarget > 1.0) { 
+                        // If the player is very far, teleport them closer to avoid long "running" animations
+                        if (distanceToTarget > 150) {
+                            newPos = player.targetPosition;
+                        } else if (distanceToTarget > 1.0) { 
+                             // Otherwise, move them at a constant speed towards the target
                             const angle = Math.atan2(player.targetPosition.y - player.position.y, player.targetPosition.x - player.position.x);
-                            const moveSpeed = 4.0; 
+                            const moveSpeed = 4.0; // Should match player's sprint speed for realism
                             newPos = {
                                 x: player.position.x + Math.cos(angle) * moveSpeed,
                                 y: player.position.y + Math.sin(angle) * moveSpeed,
                             };
                         } else {
+                            // If close, smoothly lerp to the final position to avoid jittering
                             newPos = {
                                 x: lerp(player.position.x, player.targetPosition.x, 0.25),
                                 y: lerp(player.position.y, player.targetPosition.y, 0.25),
