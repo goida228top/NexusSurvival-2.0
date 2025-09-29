@@ -216,19 +216,22 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
     const lastTimeRef = useRef<number>(performance.now());
     const frameCountRef = useRef<number>(0);
-    const playersInitialized = useRef(false);
     
     const selectedItem = selectedSlot !== null ? inventory[selectedSlot] : null;
     const canBuild = !!selectedItem && (selectedItem.type === 'stone' || selectedItem.type === 'workbench');
     
+    // This effect handles the initial population of players and resets the state on reconnect.
     useEffect(() => {
-        if (gameMode === 'online' && !playersInitialized.current && initialPlayers.length > 0) {
+        // If we are in online mode and have a player ID from the server, we can initialize.
+        // This runs on first load and also on reconnect (when playerId/initialPlayers changes).
+        if (gameMode === 'online' && playerId) {
             const now = performance.now();
             const newRemotePlayers: { [id: string]: RemotePlayer } = {};
             const initialPlayersData = initialPlayers as any[] as IncomingPlayer[];
+
             for (const p of initialPlayersData) {
                 const id = String(p.id).trim();
-                if (id === playerId) continue;
+                if (id === playerId) continue; // Always ignore self
                 const pos = { x: p.x, y: p.y };
                 newRemotePlayers[id] = {
                     id: id,
@@ -243,8 +246,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     lastPositionChangeTime: now,
                 };
             }
+            // By replacing the entire state, we automatically clear any "ghosts" from a previous connection.
             setRemotePlayers(newRemotePlayers);
-            playersInitialized.current = true;
         }
     }, [gameMode, initialPlayers, playerId]);
 
@@ -252,7 +255,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     useEffect(() => {
         if (gameMode !== 'online' || !socket) {
             setRemotePlayers({});
-            playersInitialized.current = false;
             return;
         }
 

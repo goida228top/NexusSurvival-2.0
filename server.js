@@ -5,6 +5,7 @@ const http = require('http');
 // Ограничение частоты рассылки сообщений о движении в миллисекундах.
 // 66 мс = ~15 обновлений в секунду.
 const BROADCAST_INTERVAL_MS = 66; 
+const HEARTBEAT_INTERVAL_MS = 5000; // Пингуем каждые 5 секунд (было 20)
 
 // Создаем HTTP сервер
 const server = http.createServer((req, res) => {
@@ -41,6 +42,13 @@ function isNicknameTaken(nickname, excludeId) {
 
 wss.on('connection', (ws, req) => {
     const id = nextPlayerId++;
+    ws.playerId = id; // Сохраняем ID игрока в объекте сокета для идентификации
+    ws.isAlive = true; // Флаг для проверки активности соединения
+
+    // Встроенный обработчик ответа на пинг (pong)
+    ws.on('pong', () => {
+        ws.isAlive = true;
+    });
     
     const player = {
         id: id,
@@ -149,6 +157,27 @@ function broadcast(data, excludeId = null) {
         }
     });
 }
+
+// --- Проверка "мертвых" соединений (Heartbeat) ---
+const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach(ws => {
+        if (ws.isAlive === false) {
+            const player = players.get(ws.playerId);
+            const playerName = player ? player.nickname : `ID ${ws.playerId}`;
+            console.log(`[Heartbeat] No response from player ${playerName}. Terminating connection.`);
+            return ws.terminate(); // Это вызовет событие 'close' на сервере
+        }
+
+        ws.isAlive = false; // Ожидаем pong в ответ на следующий пинг
+        ws.ping(() => {});
+    });
+}, HEARTBEAT_INTERVAL_MS);
+
+// Очистка интервала при закрытии сервера
+wss.on('close', () => {
+    clearInterval(heartbeatInterval);
+});
+
 
 // Запускаем сервер
 const PORT = process.env.PORT || 3000;
