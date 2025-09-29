@@ -127,12 +127,12 @@ wss.on('connection', (ws, req) => {
     });
 
     ws.on('close', () => {
-        const player = players.get(id);
+        const player = players.get(ws.playerId);
         if (player) {
-            console.log(`[Disconnection] Player ${id} (${player.nickname}) disconnected.`);
-            players.delete(id);
-            // Отправляем player_left для мгновенного удаления на клиентах
-            broadcast(JSON.stringify({ type: 'player_left', playerId: id }));
+            console.log(`[Disconnection] Player ${ws.playerId} (${player.nickname}) disconnected.`);
+            players.delete(ws.playerId);
+            // Больше не нужно отправлять 'player_left'.
+            // Периодическая рассылка 'players_update' автоматически обработает выход игрока.
         }
     });
 });
@@ -148,6 +148,11 @@ function broadcast(data, excludeId = null) {
 
 // --- Периодическая рассылка состояния мира ---
 setInterval(() => {
+    // Если нет игроков, ничего не делаем
+    if (players.size === 0) {
+        return;
+    }
+
     const playersData = Array.from(players.values()).map(p => ({
         id: p.id,
         x: p.x,
@@ -156,17 +161,18 @@ setInterval(() => {
         nickname: p.nickname,
         health: p.health,
     }));
+    
+    // Создаем одно сообщение с полным состоянием
+    const updateMessage = JSON.stringify({
+        type: 'players_update',
+        players: playersData
+    });
 
-    if (playersData.length === 0) return;
-
-    // Каждому игроку отправляем состояние всех остальных игроков
-    players.forEach(player => {
-        if (player.ws.readyState === WebSocket.OPEN) {
-            const otherPlayers = playersData.filter(p => p.id !== player.id);
-            player.ws.send(JSON.stringify({
-                type: 'players_update',
-                players: otherPlayers
-            }));
+    // Рассылаем это сообщение всем подключенным клиентам.
+    // Клиент сам отфильтрует себя из списка.
+    wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(updateMessage);
         }
     });
 }, BROADCAST_INTERVAL_MS);

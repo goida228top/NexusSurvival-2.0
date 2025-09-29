@@ -269,6 +269,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                             
                             for (const p of playersUpdate) {
                                 const id = String(p.id).trim();
+                                // This is the most important check: never render ourselves as a remote player.
                                 if (id === playerId) continue;
     
                                 const existingPlayer = prev[id];
@@ -302,19 +303,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                     };
                                 }
                             }
-                            // This new state implicitly handles players who have left.
+                            // By creating a new state object from scratch based on the server's list,
+                            // we automatically handle players who have left, as they won't be in the message.
                             return newPlayersState;
                         });
-                        break;
-                    }
-                    case 'player_left': {
-                        if (data?.playerId) {
-                            setRemotePlayers(prev => {
-                                const newPlayers = { ...prev };
-                                delete newPlayers[String(data.playerId).trim()];
-                                return newPlayers;
-                            });
-                        }
                         break;
                     }
                 }
