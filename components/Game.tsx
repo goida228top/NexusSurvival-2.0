@@ -222,8 +222,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     
     // This effect handles the initial population of players and resets the state on reconnect.
     useEffect(() => {
-        // If we are in online mode and have a player ID from the server, we can initialize.
-        // This runs on first load and also on reconnect (when playerId/initialPlayers changes).
         if (gameMode === 'online' && playerId) {
             const now = performance.now();
             const newRemotePlayers: { [id: string]: RemotePlayer } = {};
@@ -246,7 +244,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     lastPositionChangeTime: now,
                 };
             }
-            // By replacing the entire state, we automatically clear any "ghosts" from a previous connection.
             setRemotePlayers(newRemotePlayers);
         }
     }, [gameMode, initialPlayers, playerId]);
@@ -263,58 +260,49 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                 const data: { type: string, [key: string]: any } = JSON.parse(event.data);
                 const now = performance.now();
                 switch (data.type) {
-                    case 'player_moved': {
-                        const { playerId: movedPlayerId, x, y, rotation } = data;
-                        if (movedPlayerId !== undefined && x !== undefined && y !== undefined) {
-                            const id = String(movedPlayerId).trim();
-                            setRemotePlayers(prev => {
-                                const playerToUpdate = prev[id];
-                                if (playerToUpdate) {
-                                    const positionChanged = playerToUpdate.targetPosition.x !== x || playerToUpdate.targetPosition.y !== y;
-                                    return {
-                                        ...prev,
-                                        [id]: {
-                                            ...playerToUpdate,
-                                            targetPosition: { x, y },
-                                            targetRotation: rotation ?? playerToUpdate.targetRotation,
-                                            lastUpdateTime: now,
-                                            lastPositionChangeTime: positionChanged ? now : playerToUpdate.lastPositionChangeTime
-                                        }
+                    case 'players_update': {
+                        const playersUpdate = data.players as IncomingPlayer[];
+                        if (!playersUpdate) break;
+    
+                        setRemotePlayers(prev => {
+                            const newPlayersState: { [id: string]: RemotePlayer } = {};
+                            
+                            for (const p of playersUpdate) {
+                                const id = String(p.id).trim();
+                                if (id === playerId) continue;
+    
+                                const existingPlayer = prev[id];
+                                
+                                if (existingPlayer) {
+                                    // Player exists: update target, keep current position for interpolation
+                                    const positionChanged = existingPlayer.targetPosition.x !== p.x || existingPlayer.targetPosition.y !== p.y;
+                                    newPlayersState[id] = {
+                                        ...existingPlayer,
+                                        targetPosition: { x: p.x, y: p.y },
+                                        targetRotation: p.rotation,
+                                        nickname: p.nickname,
+                                        health: p.health || 100,
+                                        lastUpdateTime: now,
+                                        lastPositionChangeTime: positionChanged ? now : existingPlayer.lastPositionChangeTime,
+                                    };
+                                } else {
+                                    // New player: initialize with position set to target
+                                    const pos = { x: p.x, y: p.y };
+                                    newPlayersState[id] = {
+                                        id: id,
+                                        type: 'remote-player',
+                                        position: pos,
+                                        targetPosition: pos,
+                                        rotation: p.rotation,
+                                        targetRotation: p.rotation,
+                                        nickname: p.nickname,
+                                        health: p.health || 100,
+                                        lastUpdateTime: now,
+                                        lastPositionChangeTime: now,
                                     };
                                 }
-                                return prev; // Player not found, do nothing.
-                            });
-                        }
-                        break;
-                    }
-                    case 'player_joined': {
-                        const p = data.player as IncomingPlayer;
-                        if (!p || !p.id || String(p.id).trim() === playerId) break;
-                        
-                        const newId = String(p.id).trim();
-
-                        setRemotePlayers(prev => {
-                            // Anti-Clone: If a player with this ID already exists, ignore the message.
-                            if (prev[newId]) {
-                                console.warn(`Received 'player_joined' for existing player ID: ${newId}. Ignoring.`);
-                                return prev;
                             }
-
-                            const newPlayersState = { ...prev };
-                            const pos = { x: p.x, y: p.y };
-                            newPlayersState[newId] = {
-                                id: newId,
-                                type: 'remote-player',
-                                position: pos,
-                                targetPosition: pos,
-                                rotation: p.rotation,
-                                targetRotation: p.rotation,
-                                nickname: p.nickname,
-                                health: p.health || 100,
-                                lastUpdateTime: now,
-                                lastPositionChangeTime: now,
-                            };
-                    
+                            // This new state implicitly handles players who have left.
                             return newPlayersState;
                         });
                         break;
@@ -325,24 +313,6 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                 const newPlayers = { ...prev };
                                 delete newPlayers[String(data.playerId).trim()];
                                 return newPlayers;
-                            });
-                        }
-                        break;
-                    }
-                    case 'nickname_updated': {
-                        const { playerId: updatedPlayerId, nickname: newNickname } = data;
-                        if (updatedPlayerId && newNickname) {
-                            const id = String(updatedPlayerId).trim();
-                            if (id === playerId) break; // This is handled in App.tsx for the local player
-                            setRemotePlayers(prev => {
-                                const playerToUpdate = prev[id];
-                                if (playerToUpdate) {
-                                    return {
-                                        ...prev,
-                                        [id]: { ...playerToUpdate, nickname: newNickname }
-                                    };
-                                }
-                                return prev;
                             });
                         }
                         break;

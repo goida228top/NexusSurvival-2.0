@@ -2,10 +2,10 @@ const WebSocket = require('ws');
 const http = require('http');
 
 // --- СЕРВЕРНЫЕ НАСТРОЙКИ ---
-// Ограничение частоты рассылки сообщений о движении в миллисекундах.
-// 66 мс = ~15 обновлений в секунду.
-const BROADCAST_INTERVAL_MS = 66; 
-const HEARTBEAT_INTERVAL_MS = 5000; // Пингуем каждые 5 секунд (было 20)
+// Частота рассылки полного состояния мира в миллисекундах.
+// 100 мс = 10 обновлений в секунду.
+const BROADCAST_INTERVAL_MS = 100;
+const HEARTBEAT_INTERVAL_MS = 5000;
 
 // Создаем HTTP сервер
 const server = http.createServer((req, res) => {
@@ -14,7 +14,7 @@ const server = http.createServer((req, res) => {
 });
 
 // Создаем WebSocket сервер
-const wss = new WebSocket.Server({ 
+const wss = new WebSocket.Server({
     server: server,
     path: '/websocket'
 });
@@ -49,7 +49,7 @@ wss.on('connection', (ws, req) => {
     ws.on('pong', () => {
         ws.isAlive = true;
     });
-    
+
     const player = {
         id: id,
         ws: ws,
@@ -58,28 +58,24 @@ wss.on('connection', (ws, req) => {
         rotation: 0,
         nickname: `Guest${id}`,
         health: 100,
-        lastBroadcastTime: 0
     };
-    
+
     players.set(id, player);
     console.log(`[Connection] Player ${id} (${player.nickname}) connected.`);
-    
+
     // 1. Отправляем новому игроку его ID и данные всех, кто уже в игре
     const otherPlayers = Array.from(players.values())
         .filter(p => p.id !== id)
         .map(p => ({ id: p.id, x: p.x, y: p.y, rotation: p.rotation, nickname: p.nickname, health: p.health }));
-        
+
     ws.send(JSON.stringify({
         type: 'init',
         playerId: id,
         players: otherPlayers
     }));
 
-    // 2. Сообщаем всем ОСТАЛЬНЫМ о новом игроке
-    broadcast(JSON.stringify({
-        type: 'player_joined',
-        player: { id: player.id, x: player.x, y: player.y, rotation: player.rotation, nickname: player.nickname, health: player.health }
-    }), id);
+    // 2. Сообщаем всем ОСТАЛЬНЫМ о новом игроке (через следующий broadcast)
+    // Это предотвращает отправку лишнего сообщения, т.к. periodic broadcast справится
     
     ws.on('message', (data) => {
         try {
@@ -88,26 +84,15 @@ wss.on('connection', (ws, req) => {
             if (!player) return;
 
             switch (message.type) {
-                // ОБНОВЛЕНИЕ ДВИЖЕНИЯ С РАССЫЛКОЙ
+                // ОБНОВЛЕНИЕ ДВИЖЕНИЯ
                 case 'move': {
                     player.x = message.x;
                     player.y = message.y;
                     player.rotation = message.rotation || 0;
-                    
-                    const now = Date.now();
-                    if (now - player.lastBroadcastTime > BROADCAST_INTERVAL_MS) {
-                        broadcast(JSON.stringify({
-                            type: 'player_moved',
-                            playerId: id,
-                            x: player.x,
-                            y: player.y,
-                            rotation: player.rotation
-                        }), id); // Рассылаем всем, кроме себя
-                        player.lastBroadcastTime = now;
-                    }
+                    // Рассылка происходит в глобальном интервале, а не здесь
                     break;
                 }
-                
+
                 // УСТАНОВКА НИКНЕЙМА
                 case 'set_nickname': {
                     const requestedNickname = String(message.nickname || '').trim();
@@ -122,8 +107,9 @@ wss.on('connection', (ws, req) => {
                     player.nickname = finalNickname;
                     console.log(`[Nickname] Player ${id} updated to "${finalNickname}"`);
 
-                    // Рассылаем всем (включая себя) об изменении ника
-                    broadcast(JSON.stringify({
+                    // Отправляем подтверждение только этому игроку.
+                    // Остальные получат новый ник через periodic broadcast.
+                    ws.send(JSON.stringify({
                         type: 'nickname_updated',
                         playerId: id,
                         nickname: finalNickname
@@ -139,17 +125,19 @@ wss.on('connection', (ws, req) => {
             console.error(`[Error] processing message from player ${id}:`, error);
         }
     });
-    
+
     ws.on('close', () => {
         const player = players.get(id);
         if (player) {
             console.log(`[Disconnection] Player ${id} (${player.nickname}) disconnected.`);
             players.delete(id);
+            // Отправляем player_left для мгновенного удаления на клиентах
             broadcast(JSON.stringify({ type: 'player_left', playerId: id }));
         }
     });
 });
 
+// Глобальная рассылка для всех
 function broadcast(data, excludeId = null) {
     players.forEach((player) => {
         if (player.id !== excludeId && player.ws.readyState === WebSocket.OPEN) {
@@ -157,6 +145,32 @@ function broadcast(data, excludeId = null) {
         }
     });
 }
+
+// --- Периодическая рассылка состояния мира ---
+setInterval(() => {
+    const playersData = Array.from(players.values()).map(p => ({
+        id: p.id,
+        x: p.x,
+        y: p.y,
+        rotation: p.rotation,
+        nickname: p.nickname,
+        health: p.health,
+    }));
+
+    if (playersData.length === 0) return;
+
+    // Каждому игроку отправляем состояние всех остальных игроков
+    players.forEach(player => {
+        if (player.ws.readyState === WebSocket.OPEN) {
+            const otherPlayers = playersData.filter(p => p.id !== player.id);
+            player.ws.send(JSON.stringify({
+                type: 'players_update',
+                players: otherPlayers
+            }));
+        }
+    });
+}, BROADCAST_INTERVAL_MS);
+
 
 // --- Проверка "мертвых" соединений (Heartbeat) ---
 const heartbeatInterval = setInterval(() => {
