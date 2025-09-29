@@ -237,6 +237,14 @@ const App: React.FC = () => {
         setGameState('mode-select');
         setConnectionError(null);
     }, [cleanupConnection]);
+    
+    const handleResetSettings = useCallback(() => {
+        if (window.confirm('Вы уверены, что хотите сбросить все настройки? Это действие нельзя отменить.')) {
+            localStorage.removeItem('gameSettings');
+            setSettings(defaultSettings);
+            alert('Настройки сброшены.');
+        }
+    }, []);
 
 
     const renderContent = () => {
@@ -271,6 +279,7 @@ const App: React.FC = () => {
                         setGameState={setGameState}
                         customizeMode={gameState === 'customize-ui'}
                         defaultSettings={defaultSettings}
+                        onResetSettings={handleResetSettings}
                     />
                 );
             case 'mode-select':

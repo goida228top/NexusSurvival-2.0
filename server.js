@@ -1,209 +1,126 @@
+
+// A simple WebSocket server for the multiplayer survival game.
+// To run this, you need to install ws and uuid: npm install ws uuid
 const WebSocket = require('ws');
 const http = require('http');
+const { v4: uuidv4 } = require('uuid');
+const url = require('url');
 
-// --- СЕРВЕРНЫЕ НАСТРОЙКИ ---
-// Частота рассылки полного состояния мира в миллисекундах.
-// 100 мс = 10 обновлений в секунду.
-const BROADCAST_INTERVAL_MS = 100;
-const HEARTBEAT_INTERVAL_MS = 5000;
+const server = http.createServer();
+const wss = new WebSocket.Server({ noServer: true });
 
-// Создаем HTTP сервер
-const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Survival Game Server is running.\n');
-});
+const PORT = process.env.PORT || 8080;
 
-// Создаем WebSocket сервер
-const wss = new WebSocket.Server({
-    server: server,
-    path: '/websocket'
-});
+// Game State
+const players = {}; // Stores all connected player data: { id: { id, nickname, x, y, rotation, health } }
 
-const players = new Map();
-let nextPlayerId = 1;
-
-console.log('🎮 Survival Game Server Started');
-
-/**
- * Проверяет, занят ли никнейм (регистронезависимо).
- * @param {string} nickname - Никнейм для проверки.
- * @param {number} excludeId - ID игрока, который нужно исключить из проверки.
- * @returns {boolean} True, если никнейм уже используется другим игроком.
- */
-function isNicknameTaken(nickname, excludeId) {
-    const lowerNick = nickname.toLowerCase();
-    for (const player of players.values()) {
-        if (player.id !== excludeId && player.nickname && player.nickname.toLowerCase() === lowerNick) {
-            return true;
+// Broadcast a message to all connected clients
+const broadcast = (message) => {
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(message));
         }
-    }
-    return false;
-}
-
-wss.on('connection', (ws, req) => {
-    const id = nextPlayerId++;
-    ws.playerId = id; // Сохраняем ID игрока в объекте сокета для идентификации
-    ws.isAlive = true; // Флаг для проверки активности соединения
-
-    // Встроенный обработчик ответа на пинг (pong)
-    ws.on('pong', () => {
-        ws.isAlive = true;
     });
+};
 
-    const player = {
-        id: id,
-        ws: ws,
-        x: 0,
-        y: 0,
+wss.on('connection', (ws) => {
+    const playerId = uuidv4();
+    ws.id = playerId;
+
+    console.log(`Player connected with ID: ${playerId}`);
+
+    // Initialize player state
+    players[playerId] = {
+        id: playerId,
+        nickname: `Guest-${playerId.substring(0, 4)}`,
+        x: Math.random() * 200,
+        y: Math.random() * 200,
         rotation: 0,
-        nickname: `Guest${id}`,
         health: 100,
     };
 
-    players.set(id, player);
-    console.log(`[Connection] Player ${id} (${player.nickname}) connected.`);
-
-    // 1. Отправляем новому игроку его ID и данные всех, кто уже в игре
-    const otherPlayers = Array.from(players.values())
-        .filter(p => p.id !== id)
-        .map(p => ({ id: p.id, x: p.x, y: p.y, rotation: p.rotation, nickname: p.nickname, health: p.health }));
-
+    // 1. Send initialization data to the new player.
+    // This includes their own ID and the state of all *other* players.
+    const otherPlayers = Object.values(players).filter(p => p.id !== playerId);
     ws.send(JSON.stringify({
         type: 'init',
-        playerId: id,
+        playerId: playerId,
         players: otherPlayers
     }));
 
-    // 2. Сообщаем всем ОСТАЛЬНЫМ о новом игроке (через следующий broadcast)
-    // Это предотвращает отправку лишнего сообщения, т.к. periodic broadcast справится
-    
-    ws.on('message', (data) => {
+    ws.on('message', (message) => {
         try {
-            const message = JSON.parse(data);
-            const player = players.get(id);
+            const data = JSON.parse(message);
+            const player = players[ws.id];
             if (!player) return;
 
-            switch (message.type) {
-                // ОБНОВЛЕНИЕ ДВИЖЕНИЯ
-                case 'move': {
-                    player.x = message.x;
-                    player.y = message.y;
-                    player.rotation = message.rotation || 0;
-                    // Рассылка происходит в глобальном интервале, а не здесь
-                    break;
-                }
-
-                // УСТАНОВКА НИКНЕЙМА
-                case 'set_nickname': {
-                    const requestedNickname = String(message.nickname || '').trim();
-                    if (requestedNickname.length === 0 || requestedNickname.length > 16) return;
-
-                    let finalNickname = requestedNickname;
-                    let counter = 1;
-                    while (isNicknameTaken(finalNickname, id)) {
-                        finalNickname = `${requestedNickname}_${counter++}`;
+            switch (data.type) {
+                case 'set_nickname':
+                    const newNickname = (data.nickname || '').trim().substring(0, 16);
+                    if (newNickname) {
+                        console.log(`Player ${player.id} changed nickname to ${newNickname}`);
+                        player.nickname = newNickname;
+                        // Confirm the nickname back to the player
+                        ws.send(JSON.stringify({
+                            type: 'nickname_updated',
+                            playerId: player.id,
+                            nickname: player.nickname
+                        }));
                     }
-                    
-                    player.nickname = finalNickname;
-                    console.log(`[Nickname] Player ${id} updated to "${finalNickname}"`);
-
-                    // Отправляем подтверждение только этому игроку.
-                    // Остальные получат новый ник через periodic broadcast.
-                    ws.send(JSON.stringify({
-                        type: 'nickname_updated',
-                        playerId: id,
-                        nickname: finalNickname
-                    }));
                     break;
-                }
-                
+
+                case 'move':
+                    player.x = data.x;
+                    player.y = data.y;
+                    player.rotation = data.rotation;
+                    break;
+
                 case 'ping':
                     ws.send(JSON.stringify({ type: 'pong' }));
                     break;
             }
         } catch (error) {
-            console.error(`[Error] processing message from player ${id}:`, error);
+            console.error(`Failed to process message from ${ws.id}:`, error);
         }
     });
 
     ws.on('close', () => {
-        const player = players.get(ws.playerId);
-        if (player) {
-            console.log(`[Disconnection] Player ${ws.playerId} (${player.nickname}) disconnected.`);
-            players.delete(ws.playerId);
-            // Больше не нужно отправлять 'player_left'.
-            // Периодическая рассылка 'players_update' автоматически обработает выход игрока.
-        }
+        console.log(`Player disconnected: ${ws.id}`);
+        delete players[ws.id];
+    });
+
+    ws.on('error', (error) => {
+        console.error(`WebSocket error for player ${ws.id}:`, error);
+        delete players[ws.id];
     });
 });
 
-// Глобальная рассылка для всех
-function broadcast(data, excludeId = null) {
-    players.forEach((player) => {
-        if (player.id !== excludeId && player.ws.readyState === WebSocket.OPEN) {
-            player.ws.send(data);
-        }
-    });
-}
-
-// --- Периодическая рассылка состояния мира ---
+// Update game state and broadcast to all clients periodically
 setInterval(() => {
-    // Если нет игроков, ничего не делаем
-    if (players.size === 0) {
-        return;
+    if (wss.clients.size > 0) {
+        const playersArray = Object.values(players);
+        broadcast({
+            type: 'players_update',
+            players: playersArray
+        });
     }
+}, 100); // Broadcast state 10 times per second
 
-    // Собираем данные всех игроков в один массив
-    const allPlayersData = Array.from(players.values()).map(p => ({
-        id: p.id,
-        x: p.x,
-        y: p.y,
-        rotation: p.rotation,
-        nickname: p.nickname,
-        health: p.health,
-    }));
-    
-    // Вместо одной общей рассылки, отправляем каждому игроку персонализированный список
-    players.forEach((playerToSendTo) => {
-        const clientWs = playerToSendTo.ws;
-        if (clientWs.readyState === WebSocket.OPEN) {
-            // Для каждого игрока фильтруем общий список, чтобы исключить его самого
-            const otherPlayersData = allPlayersData.filter(p => p.id !== playerToSendTo.id);
-            
-            const updateMessage = JSON.stringify({
-                type: 'players_update',
-                players: otherPlayersData
-            });
+// Handle HTTP server upgrades for WebSocket connections
+server.on('upgrade', (request, socket, head) => {
+    const pathname = url.parse(request.url).pathname;
 
-            clientWs.send(updateMessage);
-        }
-    });
-}, BROADCAST_INTERVAL_MS);
-
-
-// --- Проверка "мертвых" соединений (Heartbeat) ---
-const heartbeatInterval = setInterval(() => {
-    wss.clients.forEach(ws => {
-        if (ws.isAlive === false) {
-            const player = players.get(ws.playerId);
-            const playerName = player ? player.nickname : `ID ${ws.playerId}`;
-            console.log(`[Heartbeat] No response from player ${playerName}. Terminating connection.`);
-            return ws.terminate(); // Это вызовет событие 'close' на сервере
-        }
-
-        ws.isAlive = false; // Ожидаем pong в ответ на следующий пинг
-        ws.ping(() => {});
-    });
-}, HEARTBEAT_INTERVAL_MS);
-
-// Очистка интервала при закрытии сервера
-wss.on('close', () => {
-    clearInterval(heartbeatInterval);
+    if (pathname === '/websocket') {
+        wss.handleUpgrade(request, socket, head, (ws) => {
+            wss.emit('connection', ws, request);
+        });
+    } else {
+        console.log(`Rejecting connection to non-websocket path: ${pathname}`);
+        socket.destroy();
+    }
 });
 
-
-// Запускаем сервер
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Server is listening on port ${PORT}`);
+server.listen(PORT, () => {
+    console.log(`Server is listening on port ${PORT}`);
+    console.log(`WebSocket is available at ws://localhost:${PORT}/websocket`);
 });

@@ -1,5 +1,4 @@
 
-
 export type Position = { x: number; y: number };
 
 export type WorldObject = {
@@ -14,19 +13,20 @@ export type WorldObject = {
 };
 
 export type Player = {
-  id: 'player';
+  id: 'player' | string;
   type: 'player';
   position: Position;
   rotation: number;
+  name?: string;
 };
 
 export type RemotePlayer = {
   id: string;
   type: 'remote-player';
   position: Position;
-  targetPosition: Position; // For smooth interpolation
+  targetPosition: Position;
   rotation: number;
-  targetRotation: number; // For smooth interpolation
+  targetRotation: number;
   nickname: string;
   health: number;
   lastUpdateTime: number;
@@ -79,13 +79,4 @@ export type GameSettings = {
   inventoryBackgroundColor: string;
 };
 
-export type GameState = 'menu' | 'mode-select' | 'connecting' | 'playing' | 'paused' | 'settings' | 'inventory' | 'customize-ui';
-
-// FIX: Added PeerJSDataConnection type to resolve import error in OnlineLobby.tsx
-export type PeerJSDataConnection = {
-  on(event: 'data' | 'open' | 'close' | 'error', cb: (data?: any) => void): void;
-  send(data: any): void;
-  close(): void;
-  open: boolean;
-  peer: string;
-};
+export type GameState = 'menu' | 'playing' | 'paused' | 'settings' | 'inventory' | 'customize-ui' | 'mode-select' | 'connecting';

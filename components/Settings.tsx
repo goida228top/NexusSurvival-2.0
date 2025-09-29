@@ -11,6 +11,7 @@ interface SettingsProps {
     setGameState: React.Dispatch<React.SetStateAction<GameState>>;
     customizeMode: boolean;
     defaultSettings: GameSettings;
+    onResetSettings: () => void;
 }
 
 // --- Dummy Components for display in settings ---
@@ -175,7 +176,7 @@ const PanelSettingsPopup: React.FC<{
 };
 
 
-const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack, setGameState, customizeMode, defaultSettings }) => {
+const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack, setGameState, customizeMode, defaultSettings, onResetSettings }) => {
 
     const [currentLayouts, setCurrentLayouts] = useState(settings.layouts);
     const [customizeTab, setCustomizeTab] = useState<'inventory' | 'hud'>('inventory');
@@ -356,6 +357,12 @@ const Settings: React.FC<SettingsProps> = ({ settings, setSettings, onBack, setG
                         <label htmlFor="showPunchHitbox" className="text-lg">Показывать хитбокс удара</label>
                         <button id="showPunchHitbox" role="switch" aria-checked={settings.showPunchHitbox} onClick={() => handleSettingChange('showPunchHitbox', !settings.showPunchHitbox)} className={`relative inline-flex items-center h-8 w-14 rounded-full transition-colors ${settings.showPunchHitbox ? 'bg-green-500' : 'bg-gray-600'}`}>
                             <span className={`inline-block w-6 h-6 transform bg-white rounded-full transition-transform ${settings.showPunchHitbox ? 'translate-x-7' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
+
+                    <div className="pt-4 border-t-2 border-red-500/50 mt-6">
+                        <button onClick={onResetSettings} className="w-full px-6 py-3 bg-red-800 text-white font-bold rounded-lg text-xl hover:bg-red-700 transition-colors">
+                            Сбросить все настройки
                         </button>
                     </div>
                 </div>
