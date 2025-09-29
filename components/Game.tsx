@@ -266,45 +266,32 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     
                         setRemotePlayers(prev => {
                             const newPlayersState: { [id: string]: RemotePlayer } = {};
+                            const now = performance.now();
                             
                             for (const p of playersUpdate) {
                                 const id = String(p.id).trim();
-                                // This is the most important check: never render ourselves as a remote player.
                                 if (id === playerId) continue;
     
                                 const existingPlayer = prev[id];
-                                
-                                if (existingPlayer) {
-                                    // Player exists: update target, keep current position for interpolation
-                                    const positionChanged = existingPlayer.targetPosition.x !== p.x || existingPlayer.targetPosition.y !== p.y;
-                                    newPlayersState[id] = {
-                                        ...existingPlayer,
-                                        targetPosition: { x: p.x, y: p.y },
-                                        targetRotation: p.rotation,
-                                        nickname: p.nickname,
-                                        health: p.health || 100,
-                                        lastUpdateTime: now,
-                                        lastPositionChangeTime: positionChanged ? now : existingPlayer.lastPositionChangeTime,
-                                    };
-                                } else {
-                                    // New player: initialize with position set to target
-                                    const pos = { x: p.x, y: p.y };
-                                    newPlayersState[id] = {
-                                        id: id,
-                                        type: 'remote-player',
-                                        position: pos,
-                                        targetPosition: pos,
-                                        rotation: p.rotation,
-                                        targetRotation: p.rotation,
-                                        nickname: p.nickname,
-                                        health: p.health || 100,
-                                        lastUpdateTime: now,
-                                        lastPositionChangeTime: now,
-                                    };
-                                }
+                                const pos = { x: p.x, y: p.y };
+    
+                                // FIX: To solve the ghosting/cloning bug, we now create a fresh player object
+                                // from the server data on every update. We preserve the *currently rendered*
+                                // position to allow for smooth interpolation, but we no longer spread the
+                                // entire old object, which could preserve stale data and cause ghosting.
+                                newPlayersState[id] = {
+                                    id: id,
+                                    type: 'remote-player',
+                                    position: existingPlayer ? existingPlayer.position : pos,
+                                    targetPosition: pos,
+                                    rotation: existingPlayer ? existingPlayer.rotation : p.rotation,
+                                    targetRotation: p.rotation,
+                                    nickname: p.nickname,
+                                    health: p.health || 100,
+                                    lastUpdateTime: now,
+                                    lastPositionChangeTime: now, // Simplified for robustness
+                                };
                             }
-                            // By creating a new state object from scratch based on the server's list,
-                            // we automatically handle players who have left, as they won't be in the message.
                             return newPlayersState;
                         });
                         break;
@@ -328,9 +315,9 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
 
         // Store the last state that was sent to the server.
         const lastSentState = {
-            x: playerPositionRef.current.x,
-            y: playerPositionRef.current.y,
-            rotation: playerPositionRef.current.rotation,
+            x: -9999, // Initialize with impossible values to guarantee first send
+            y: -9999,
+            rotation: -9999,
         };
 
         const interval = setInterval(() => {
@@ -589,23 +576,18 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                         );
                 
                         let newPos = player.position;
-                        // If the player is very far, teleport them closer to avoid long "running" animations
+                        // If the player is very far, teleport them to avoid long "running" animations
                         if (distanceToTarget > 150) {
                             newPos = player.targetPosition;
-                        } else if (distanceToTarget > 1.0) { 
-                             // Otherwise, move them at a constant speed towards the target
-                            const angle = Math.atan2(player.targetPosition.y - player.position.y, player.targetPosition.x - player.position.x);
-                            const moveSpeed = 4.0; // Should match player's sprint speed for realism
-                            newPos = {
-                                x: player.position.x + Math.cos(angle) * moveSpeed,
-                                y: player.position.y + Math.sin(angle) * moveSpeed,
-                            };
-                        } else {
-                            // If close, smoothly lerp to the final position to avoid jittering
+                        } else if (distanceToTarget > 0.5) { 
+                            // If they are a bit far, smoothly lerp towards the target
                             newPos = {
                                 x: lerp(player.position.x, player.targetPosition.x, 0.25),
                                 y: lerp(player.position.y, player.targetPosition.y, 0.25),
                             };
+                        } else {
+                            // If very close, just snap to the target to prevent jitter
+                            newPos = player.targetPosition;
                         }
 
                         const newRot = lerpAngle(player.rotation, player.targetRotation, 0.25);

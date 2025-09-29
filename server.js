@@ -153,7 +153,8 @@ setInterval(() => {
         return;
     }
 
-    const playersData = Array.from(players.values()).map(p => ({
+    // Собираем данные всех игроков в один массив
+    const allPlayersData = Array.from(players.values()).map(p => ({
         id: p.id,
         x: p.x,
         y: p.y,
@@ -162,17 +163,19 @@ setInterval(() => {
         health: p.health,
     }));
     
-    // Создаем одно сообщение с полным состоянием
-    const updateMessage = JSON.stringify({
-        type: 'players_update',
-        players: playersData
-    });
+    // Вместо одной общей рассылки, отправляем каждому игроку персонализированный список
+    players.forEach((playerToSendTo) => {
+        const clientWs = playerToSendTo.ws;
+        if (clientWs.readyState === WebSocket.OPEN) {
+            // Для каждого игрока фильтруем общий список, чтобы исключить его самого
+            const otherPlayersData = allPlayersData.filter(p => p.id !== playerToSendTo.id);
+            
+            const updateMessage = JSON.stringify({
+                type: 'players_update',
+                players: otherPlayersData
+            });
 
-    // Рассылаем это сообщение всем подключенным клиентам.
-    // Клиент сам отфильтрует себя из списка.
-    wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-            client.send(updateMessage);
+            clientWs.send(updateMessage);
         }
     });
 }, BROADCAST_INTERVAL_MS);
