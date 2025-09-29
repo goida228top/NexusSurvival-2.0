@@ -53,8 +53,8 @@ wss.on('connection', (ws, req) => {
     const player = {
         id: id,
         ws: ws,
-        x: Math.random() * 500 + 100,
-        y: Math.random() * 500 + 100,
+        x: 0,
+        y: 0,
         rotation: 0,
         nickname: `Guest${id}`,
         health: 100,

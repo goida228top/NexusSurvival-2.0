@@ -165,7 +165,7 @@ const lerpAngle = (start: number, end: number, amt: number) => {
 const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode, socket, playerId, nickname, initialPlayers, onBackToMenu }) => {
     const { useState, useEffect, useRef } = React;
     const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-    const [playerPosition, setPlayerPosition] = useState<Position>({ x: 100, y: 100 });
+    const [playerPosition, setPlayerPosition] = useState<Position>({ x: 0, y: 0 });
     const [playerRotation, setPlayerRotation] = useState(0);
     const [worldObjects, setWorldObjects] = useState<WorldObject[]>(initialWorldObjects);
     const [inventory, setInventory] = useState<(InventoryItem | undefined)[]>(Array(INVENTORY_SIZE).fill(undefined));
@@ -200,7 +200,7 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
     const punchAvailableTimeRef = useRef(0);
 
     // Refs for real-time position/rotation to solve stale state issues in event handlers
-    const playerPositionRef = useRef<Position>({ x: 100, y: 100 });
+    const playerPositionRef = useRef<Position>({ x: 0, y: 0 });
     const playerRotationRef = useRef(0);
 
     const playerVelocity = useRef({ x: 0, y: 0 });
@@ -272,24 +272,22 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                                 const id = String(p.id).trim();
                                 if (id === playerId) continue;
     
-                                const existingPlayer = prev[id];
                                 const pos = { x: p.x, y: p.y };
     
-                                // FIX: To solve the ghosting/cloning bug, we now create a fresh player object
-                                // from the server data on every update. We preserve the *currently rendered*
-                                // position to allow for smooth interpolation, but we no longer spread the
-                                // entire old object, which could preserve stale data and cause ghosting.
+                                // FIX: To solve the cloning bug, we completely ignore client-side interpolation
+                                // and snap the player directly to the server's coordinates. This is more robust
+                                // and prevents any possibility of ghosting artifacts from stale state.
                                 newPlayersState[id] = {
                                     id: id,
                                     type: 'remote-player',
-                                    position: existingPlayer ? existingPlayer.position : pos,
+                                    position: pos,
                                     targetPosition: pos,
-                                    rotation: existingPlayer ? existingPlayer.rotation : p.rotation,
+                                    rotation: p.rotation,
                                     targetRotation: p.rotation,
                                     nickname: p.nickname,
                                     health: p.health || 100,
                                     lastUpdateTime: now,
-                                    lastPositionChangeTime: now, // Simplified for robustness
+                                    lastPositionChangeTime: now, 
                                 };
                             }
                             return newPlayersState;
@@ -564,50 +562,8 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     return newRotation;
                 });
                 
-                // Remote players interpolation
-                setRemotePlayers(currentRemotePlayers => {
-                    const updatedPlayers: { [id:string]: RemotePlayer } = {};
-                    let hasChanged = false;
-                    for (const id in currentRemotePlayers) {
-                        const player = currentRemotePlayers[id];
-                        const distanceToTarget = Math.sqrt(
-                            (player.targetPosition.x - player.position.x) ** 2 +
-                            (player.targetPosition.y - player.position.y) ** 2
-                        );
-                
-                        let newPos = player.position;
-                        // If the player is very far, teleport them to avoid long "running" animations
-                        if (distanceToTarget > 150) {
-                            newPos = player.targetPosition;
-                        } else if (distanceToTarget > 0.5) { 
-                            // If they are a bit far, smoothly lerp towards the target
-                            newPos = {
-                                x: lerp(player.position.x, player.targetPosition.x, 0.25),
-                                y: lerp(player.position.y, player.targetPosition.y, 0.25),
-                            };
-                        } else {
-                            // If very close, just snap to the target to prevent jitter
-                            newPos = player.targetPosition;
-                        }
-
-                        const newRot = lerpAngle(player.rotation, player.targetRotation, 0.25);
-
-                        if (
-                            Math.abs(player.position.x - newPos.x) > 0.01 || 
-                            Math.abs(player.position.y - newPos.y) > 0.01 ||
-                            Math.abs(player.rotation - newRot) > 0.01
-                        ) {
-                            hasChanged = true;
-                        }
-
-                        updatedPlayers[id] = {
-                            ...player,
-                            position: newPos,
-                            rotation: newRot,
-                        };
-                    }
-                    return hasChanged ? updatedPlayers : currentRemotePlayers;
-                });
+                // Remote players are now snapped to position, so no interpolation is needed.
+                // The state is updated directly by the websocket handler.
 
                 setPlayerPosition(currentPosition => {
                     if (gameContainerRef.current && gameWorldRef.current) {
@@ -1279,7 +1235,10 @@ const Game: React.FC<GameProps> = ({ gameState, setGameState, settings, gameMode
                     <button onClick={handlePause} className="w-12 h-12 bg-gray-500/50 text-white text-2xl rounded-md flex items-center justify-center active:bg-gray-600/50">||</button>
                 </div>
                 
-                {settings.showFps && <div className="absolute top-4 left-4 bg-black/50 text-white p-2 rounded-md z-10 pointer-events-auto">FPS: {fps}</div>}
+                <div className="absolute top-4 left-4 bg-black/50 text-white p-2 rounded-md z-10 pointer-events-auto flex flex-col gap-1 text-sm">
+                    {settings.showFps && <span>FPS: {fps}</span>}
+                    <span>X: {playerPosition.x.toFixed(0)}, Y: {playerPosition.y.toFixed(0)}</span>
+                </div>
                 
                 {hotbarLayout.visible !== false && (
                     <div 
