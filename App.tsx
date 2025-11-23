@@ -43,7 +43,6 @@ const deepMerge = (target: any, source: any) => {
 
 type GameMode = 'offline' | 'online';
 
-const WEBSOCKET_URL = 'wss://nexussurvival.duckdns.org/websocket';
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 const App: React.FC = () => {
@@ -55,6 +54,9 @@ const App: React.FC = () => {
     const [initialPlayers, setInitialPlayers] = useState<RemotePlayer[]>([]);
     const [nickname, setNickname] = useState<string>(
         () => localStorage.getItem('playerNickname') || `Guest${Math.floor(Math.random() * 10000)}`
+    );
+    const [serverAddress, setServerAddress] = useState<string>(
+        () => localStorage.getItem('serverAddress') || 'ws://localhost:3000'
     );
     const [finalNickname, setFinalNickname] = useState<string>(nickname);
 
@@ -87,6 +89,10 @@ const App: React.FC = () => {
     useEffect(() => {
         localStorage.setItem('playerNickname', nickname);
     }, [nickname]);
+
+    useEffect(() => {
+        localStorage.setItem('serverAddress', serverAddress);
+    }, [serverAddress]);
 
     const handleAppMessages = useCallback((event: MessageEvent) => {
         try {
@@ -152,7 +158,22 @@ const App: React.FC = () => {
         setGameState('connecting');
         setConnectionError(null);
     
-        const newSocket = new WebSocket(WEBSOCKET_URL);
+        let wsUrl = serverAddress;
+        // Basic normalization if user forgets ws:// or wss://
+        if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
+            wsUrl = 'ws://' + wsUrl;
+        }
+
+        console.log("Connecting to:", wsUrl);
+
+        let newSocket: WebSocket;
+        try {
+             newSocket = new WebSocket(wsUrl);
+        } catch (e) {
+            setGameState('mode-select');
+            setConnectionError('Некорректный адрес сервера.');
+            return;
+        }
     
         const startPing = () => {
             if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
@@ -207,11 +228,11 @@ const App: React.FC = () => {
         newSocket.onerror = (error) => {
             console.error('WebSocket error:', error);
             if (reconnectAttemptsRef.current === 0) {
-                 setConnectionError('Не удалось подключиться к серверу. Проверьте ваше интернет-соединение.');
+                 setConnectionError('Не удалось подключиться к серверу. Проверьте адрес и интернет-соединение.');
             }
             // The onclose event will fire after onerror, triggering reconnection logic.
         };
-    }, [handleAppMessages, gameState]);
+    }, [handleAppMessages, gameState, serverAddress]);
 
     const handlePlayClick = useCallback(() => {
         setGameState('mode-select');
@@ -252,7 +273,7 @@ const App: React.FC = () => {
             case 'menu':
                 return (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-black">
-                        <h1 className="text-6xl font-bold mb-8 animate-pulse">Survival Game</h1>
+                        <h1 className="text-6xl font-bold mb-8 animate-pulse text-center">Survival Game</h1>
                         <div className="flex flex-col gap-4">
                             <button
                                 onClick={handlePlayClick}
@@ -285,30 +306,48 @@ const App: React.FC = () => {
             case 'mode-select':
                 return (
                     <div className="w-full h-full flex flex-col items-center justify-center bg-black p-4">
-                        {connectionError && <p className="mb-4 text-center text-red-400 bg-red-900/50 p-3 rounded-md">{connectionError}</p>}
-                        <h2 className="text-4xl font-bold mb-8">Выберите режим</h2>
-                        <div className="mb-6 w-full max-w-xs">
-                            <label htmlFor="nickname" className="block text-center text-gray-400 mb-2">Ваш никнейм</label>
-                            <input
-                                id="nickname"
-                                type="text"
-                                value={nickname}
-                                onChange={(e) => setNickname(e.target.value)}
-                                maxLength={16}
-                                className="px-4 py-3 bg-gray-800 text-white rounded-lg text-lg w-full text-center placeholder-gray-500 border-2 border-gray-700 focus:border-purple-500 focus:outline-none"
-                            />
+                        {connectionError && <p className="mb-4 text-center text-red-400 bg-red-900/50 p-3 rounded-md max-w-md">{connectionError}</p>}
+                        <h2 className="text-4xl font-bold mb-6 text-center">Выберите режим</h2>
+                        
+                        <div className="w-full max-w-sm space-y-4 mb-6">
+                            <div>
+                                <label htmlFor="nickname" className="block text-center text-gray-400 mb-1">Ваш никнейм</label>
+                                <input
+                                    id="nickname"
+                                    type="text"
+                                    value={nickname}
+                                    onChange={(e) => setNickname(e.target.value)}
+                                    maxLength={16}
+                                    className="px-4 py-2 bg-gray-800 text-white rounded-lg text-lg w-full text-center placeholder-gray-500 border-2 border-gray-700 focus:border-purple-500 focus:outline-none"
+                                    placeholder="Игрок"
+                                />
+                            </div>
+
+                            <div>
+                                <label htmlFor="serverAddress" className="block text-center text-gray-400 mb-1 text-sm">Адрес сервера (для Онлайн)</label>
+                                <input
+                                    id="serverAddress"
+                                    type="text"
+                                    value={serverAddress}
+                                    onChange={(e) => setServerAddress(e.target.value)}
+                                    className="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm w-full text-center placeholder-gray-500 border-2 border-gray-700 focus:border-purple-500 focus:outline-none font-mono"
+                                    placeholder="ws://localhost:3000"
+                                />
+                                <p className="text-xs text-gray-500 text-center mt-1">Пример: ws://192.168.1.5:3000</p>
+                            </div>
                         </div>
-                        <div className="flex flex-col sm:flex-row gap-4">
+
+                        <div className="flex flex-col sm:flex-row gap-4 w-full max-w-sm justify-center">
                             <button
                                 onClick={handleOfflineClick}
-                                className="px-8 py-4 bg-blue-600 text-white font-bold rounded-lg text-2xl hover:bg-blue-700 transition-colors"
+                                className="flex-1 px-4 py-3 bg-blue-600 text-white font-bold rounded-lg text-xl hover:bg-blue-700 transition-colors"
                             >
                                 Офлайн
                             </button>
                             <button
                                 onClick={handleConnectClick}
-                                disabled={!nickname.trim()}
-                                className="px-8 py-4 bg-purple-600 text-white font-bold rounded-lg text-2xl hover:bg-purple-700 transition-colors disabled:bg-gray-500 disabled:cursor-not-allowed"
+                                disabled={!nickname.trim() || !serverAddress.trim()}
+                                className="flex-1 px-4 py-3 bg-purple-600 text-white font-bold rounded-lg text-xl hover:bg-purple-700 transition-colors disabled:bg-gray-700 disabled:cursor-not-allowed"
                             >
                                 Онлайн
                             </button>
@@ -323,9 +362,10 @@ const App: React.FC = () => {
                 );
             case 'connecting':
                  return (
-                    <div className="w-full h-full flex flex-col items-center justify-center bg-black">
-                        <p className="text-2xl animate-pulse">Подключение к серверу...</p>
-                        {connectionError && <p className="mt-4 text-center text-yellow-400">{connectionError}</p>}
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-black p-4">
+                        <p className="text-2xl animate-pulse text-center">Подключение к серверу...</p>
+                        <p className="text-sm text-gray-400 mt-2 font-mono">{serverAddress}</p>
+                        {connectionError && <p className="mt-4 text-center text-yellow-400 max-w-md">{connectionError}</p>}
                         <button
                             onClick={handleBackToModeSelect}
                             className="mt-8 px-6 py-2 bg-red-600 text-white font-bold rounded-lg text-lg hover:bg-red-700 transition-colors"
